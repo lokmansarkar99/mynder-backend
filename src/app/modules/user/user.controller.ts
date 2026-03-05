@@ -3,83 +3,101 @@ import catchAsync from "../../../shared/catchAsync";
 import { UserService } from "./user.service";
 import sendResponse from "../../../shared/sendResponse";
 import { StatusCodes } from "http-status-codes";
-import { User } from "./user.model";
-export const getMe = (req: Request, res: Response) => {
 
-    console.log(req.user)
-  return res.status(200).json({
-    success: true,
-    data: req.user,
-  });
-};
+// ── Get My Profile ─────────────────────────────────
+const getMyProfile = catchAsync(async (req: Request, res: Response) => {
+const userId = req.user?.id
+const result = await UserService.getMyProfile(userId)
 
-
-
-const getMyProfile = catchAsync(async(req:Request, res:Response) => {
-
-  const userId = req.user?.id
-  const result = await UserService.getMyProfile(userId)
-  sendResponse(res , {
-  success:true,
-  message: "Profile fetched successfully",
-  statusCode: StatusCodes.OK,
-  data: result
+sendResponse(res, {
+success: true,
+message: "Profile fetched successfully",
+statusCode: StatusCodes.OK,
+data: result
 })
 })
 
+// ── Update My Profile ──────────────────────────────
+const updateMyProfile = catchAsync(async (req: Request, res: Response) => {
+const userId = req.user?.id
+const payload = req.body
+const files = req.files
+const result = await UserService.updateMyProfile(userId, payload, files)
 
-
-const updateProfile = catchAsync(async (req: Request, res: Response) => {
-
-  const userId = req.user?.id
-  const payload = req.body
-  const files = req.files
-    const result = await UserService.updateMyProfile(userId, payload, files)
-
-  sendResponse(res , {
-    success: true,
-    message: "User updated successfully",
-    statusCode: StatusCodes.OK,
-    data: result 
-  })
+sendResponse(res, {
+success: true,
+message: "Profile updated successfully",
+statusCode: StatusCodes.OK,
+data: result
+})
 })
 
+// ── Admin: Get All Users ───────────────────────────
+const getAllUsers = catchAsync(async (req: Request, res: Response) => {
+const result = await UserService.getAllUsers(req.query)
 
-
-const allUsers = catchAsync(async (req:Request, res: Response) => {
-
-    const result = await UserService.getAllUsers(req.query)
-
-      console.log(result)
-    sendResponse(res, {
-      success: true,
-      message: "All user fetched successfullyly",
-      statusCode: StatusCodes.OK,
-      data: result
-    })
+sendResponse(res, {
+success: true,
+message: "Users fetched successfully",
+statusCode: StatusCodes.OK,
+data: result
+})
 })
 
+// ── Admin: Get Single User ─────────────────────────
+const getUserById = catchAsync(async (req: Request, res: Response) => {
+const result = await UserService.getUserById(req.params.id as string)
 
-const updateUserStatus = catchAsync(async(req:Request, res:Response) => {
-
-  const result = await UserService.updateUserStatus(req.params.id as string, req.body)
-
-  sendResponse(res, {
-    success: true,
-    message: "User Status Updated",
-    statusCode: StatusCodes.OK,
-    data: result
-  })
-
+sendResponse(res, {
+success: true,
+message: "User fetched successfully",
+statusCode: StatusCodes.OK,
+data: result
+})
 })
 
-export const userController = {  
-    getMe,
-    getMyProfile,
-    updateProfile,
-    allUsers,
-    updateUserStatus
+// ── Admin: Update User Status ──────────────────────
+const updateUserStatus = catchAsync(async (req: Request, res: Response) => {
+const result = await UserService.updateUserStatus(req.params.id as string, req.body)
 
+sendResponse(res, {
+success: true,
+message: "User status updated successfully",
+statusCode: StatusCodes.OK,
+data: result
+})
+})
+
+// ── Admin: Block / Unblock User ───────────────────
+const blockUnblockUser = catchAsync(async (req: Request, res: Response) => {
+const result = await UserService.blockUnblockUser(req.params.id as string, req.body)
+
+sendResponse(res, {
+success: true,
+message: result.message,
+statusCode: StatusCodes.OK,
+data: null
+})
+})
+
+// ── Admin: Delete User ─────────────────────────────
+const deleteUser = catchAsync(async (req: Request, res: Response) => {
+const result = await UserService.deleteUser(req.params.id as string)
+
+sendResponse(res, {
+success: true,
+message: result.message,
+statusCode: StatusCodes.OK,
+data: null
+})
+})
+
+export const UserController = {
+getMyProfile,
+updateMyProfile,
+getAllUsers,
+getUserById,
+updateUserStatus,
+blockUnblockUser,
+deleteUser,
 }
-
-
