@@ -4,6 +4,7 @@ import config from "../../../config";
 import { jwtHelper } from "../../../helpers/jwtHelper";
 import sendResponse from "../../../shared/sendResponse";
 import { User } from "../user/user.model";
+import { USER_ROLES } from "../../../enums/user";
 
 const router = Router();
 
@@ -56,10 +57,10 @@ maxAge: 7 * 24 * 60 * 60 * 1000,
 // redirect based on role + intakeCompleted
 let redirectPath: string;
 if (!user.intakeCompleted) {
-redirectPath = user.role === "provider" ? "/onboarding/provider" : "/onboarding/client";
+redirectPath = user.role === USER_ROLES.PROVIDER ? "/onboarding/provider" : "/onboarding/client";
 } else {
-if (user.role === "admin") redirectPath = "/admin/dashboard";
-else if (user.role === "provider") redirectPath = "/provider/dashboard";
+if (user.role === USER_ROLES.ADMIN) redirectPath = "/admin/dashboard";
+else if (user.role === USER_ROLES.PROVIDER) redirectPath = "/provider/dashboard";
 else redirectPath = "/client/dashboard";
 }
 
