@@ -59,12 +59,13 @@ let redirectPath: string;
 if (!user.intakeCompleted) {
 redirectPath = user.role === USER_ROLES.PROVIDER ? "/onboarding/provider" : "/onboarding/client";
 } else {
-if (user.role === USER_ROLES.ADMIN) redirectPath = "/admin/dashboard";
-else if (user.role === USER_ROLES.PROVIDER) redirectPath = "/provider/dashboard";
+if (user.role === "admin") redirectPath = "/admin/dashboard";
+else if (user.role === "provider") redirectPath = "/provider/dashboard";
 else redirectPath = "/client/dashboard";
 }
 
-const frontendRedirect = `${config.client_url}/auth/google/success?accessToken=${accessToken}&redirectTo=${redirectPath}`;
+const frontendRedirect = `${config.client_url}/auth/google/success?accessToken=${accessToken}&redirectTo=${encodeURIComponent(redirectPath)}`;
+
 
 return res.redirect(frontendRedirect);
 }

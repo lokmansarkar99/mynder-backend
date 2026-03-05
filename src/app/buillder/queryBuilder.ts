@@ -1,139 +1,118 @@
 import { Query } from 'mongoose';
 
+// FilterQuery is not a stable named export in all Mongoose versions
+// Use 'as any' for .find() filter arguments — fully safe pattern
+
 const EXCLUDE_FIELDS = [
-  "searchTerm", "sortBy", "sortOrder", "fields", "page", "limit", "dateRange"
+  'searchTerm',
+  'sort',
+  'fields',
+  'page',
+  'limit',
+  'dateRange',
 ] as const;
 
-type ExcludeFieldsType = typeof EXCLUDE_FIELDS[number];
+type TQueryParam = Record<string, unknown>;
 
 export class QueryBuilder<T> {
   public modelQuery: Query<T[], T>;
-  public readonly query: Record<string, string>;
-  private baseConditions: Record<string, any> = {};  // Base conditions
-  private filterConditions: Record<string, any> = {};  // Dynamic filters
+  public readonly query: TQueryParam;
 
-  constructor(modelQuery: Query<T[], T>, query: Record<string, string>) {
+  constructor(modelQuery: Query<T[], T>, query: TQueryParam) {
     this.modelQuery = modelQuery;
-    this.query = query;
-  }
-
-  // Base conditions set করো (isDeleted: false)
-  setBaseConditions(conditions: Record<string, any>): this {
-    this.baseConditions = conditions;
-    console.log("🏗️  Base Conditions:", conditions);
-    return this;
+    this.query      = query;
   }
 
   search(searchableFields: string[]): this {
-    const searchTerm = this.query.searchTerm?.trim();
-    console.log("🔍 Search Term:", searchTerm);
-    
+    const searchTerm = (this.query.searchTerm as string)?.trim();
+
     if (searchTerm) {
-      this.filterConditions.$or = searchableFields.map((field) => ({
-        [field]: { $regex: searchTerm, $options: "i" }
-      }));
-      console.log("🔍 $or Added");
+      this.modelQuery = this.modelQuery.find({
+        $or: searchableFields.map(field => ({
+          [field]: { $regex: searchTerm, $options: 'i' },
+        })),
+      } as any);   // ✅ 'as any' — avoids FilterQuery import issue
     }
+
     return this;
   }
 
   filter(): this {
-    const filterObj: Record<string, any> = { ...this.query };
-    EXCLUDE_FIELDS.forEach((field: ExcludeFieldsType) => delete filterObj[field]);
-    
-    console.log("🧩 Raw Filter:", filterObj);
-    Object.assign(this.filterConditions, filterObj);
-    console.log("🧩 Filter Conditions:", this.filterConditions);
+    const filterObj: TQueryParam = { ...this.query };
+    EXCLUDE_FIELDS.forEach(field => delete filterObj[field]);
+
+    // string booleans → actual booleans (?isBooked=false → false)
+    Object.keys(filterObj).forEach(key => {
+      if (filterObj[key] === 'true')  filterObj[key] = true;
+      if (filterObj[key] === 'false') filterObj[key] = false;
+    });
+
+    // numeric strings → numbers (?rating=5 → 5)
+    const NUMERIC_FIELDS = ['rating', 'intakeStep', 'durationMinutes', 'duration'];
+    NUMERIC_FIELDS.forEach(key => {
+      if (filterObj[key] !== undefined && !isNaN(Number(filterObj[key]))) {
+        filterObj[key] = Number(filterObj[key]);
+      }
+    });
+
+    this.modelQuery = this.modelQuery.find(filterObj as any);
     return this;
   }
 
   dateRange(): this {
-    const now = new Date();
-    const range = this.query.dateRange as "weekly" | "monthly" | "yearly";
+    const range = this.query.dateRange as 'weekly' | 'monthly' | 'yearly' | undefined;
+    if (!range) return this;
 
-    if (range) {
-      let startDate: Date;
-      switch (range) {
-        case "weekly": 
-          startDate = new Date(now); 
-          startDate.setDate(now.getDate() - 7); 
-          break;
-        case "monthly": 
-          startDate = new Date(now); 
-          startDate.setMonth(now.getMonth() - 1); 
-          break;
-        case "yearly": 
-          startDate = new Date(now); 
-          startDate.setFullYear(now.getFullYear() - 1); 
-          break;
-        default: 
-          return this;
-      }
-      this.filterConditions.createdAt = { $gte: startDate, $lte: new Date() };
-      console.log("📅 Date Filter Added");
+    const now       = new Date();
+    const startDate = new Date(now);
+
+    switch (range) {
+      case 'weekly':  startDate.setDate(now.getDate() - 7);          break;
+      case 'monthly': startDate.setMonth(now.getMonth() - 1);        break;
+      case 'yearly':  startDate.setFullYear(now.getFullYear() - 1);  break;
+      default:        return this;
     }
-    return this;
-  }
 
-  // 🔥 Fixed: Single find() call
-  applyAllFilters(): this {
-    const finalConditions = { 
-      ...this.baseConditions, 
-      ...this.filterConditions 
-    };
-    console.log("🔥 Final MongoDB Query:", JSON.stringify(finalConditions, null, 2));
-    
-    this.modelQuery = this.modelQuery.find(finalConditions);
-    return this;
-  }
+    this.modelQuery = this.modelQuery.find({
+      createdAt: { $gte: startDate, $lte: now },
+    } as any);
 
-  paginate(): this {
-    const page = Number(this.query.page) || 1;
-    const limit = Number(this.query.limit) || 10;
-    const skip = (page - 1) * limit;
-    
-    console.log(`📄 Page: ${page}, Skip: ${skip}, Limit: ${limit}`);
-    this.modelQuery = this.modelQuery.skip(skip).limit(limit);
     return this;
   }
 
   sort(): this {
-    const sortBy = this.query.sortBy || "createdAt";
-    const sortOrder = this.query.sortOrder === "asc" ? 1 : -1;
-    
-    console.log(`🔄 Sort: ${sortBy} (${sortOrder === 1 ? "ASC" : "DESC"})`);
-    this.modelQuery = this.modelQuery.sort({ [sortBy]: sortOrder });
+    const sortParam  = (this.query.sort as string) || '-createdAt';
+    const sortString = sortParam.split(',').join(' ');
+    this.modelQuery  = this.modelQuery.sort(sortString);
+    return this;
+  }
+
+  paginate(): this {
+    const page  = Math.max(Number(this.query.page)  || 1, 1);
+    const limit = Math.min(Number(this.query.limit) || 10, 100);
+    const skip  = (page - 1) * limit;
+    this.modelQuery = this.modelQuery.skip(skip).limit(limit);
     return this;
   }
 
   fields(): this {
-    const fields = this.query.fields?.split(",").join(" ") || "-__v";
-    console.log("📋 Select Fields:", fields);
-    this.modelQuery = this.modelQuery.select(fields);
+    const requested = (this.query.fields as string)?.split(',').join(' ');
+    this.modelQuery  = this.modelQuery.select(requested || '-__v');
     return this;
   }
 
-  async build() {
-    console.log("🚀 Executing...");
-    return await this.modelQuery.exec();
-  }
+  async countTotal() {
+    const filter = this.modelQuery.getFilter();
+    const total  = await this.modelQuery.model.countDocuments(filter);
 
-  async getMeta() {
-    // Fixed count: exact same conditions
-    const countQuery = this.modelQuery.model.find({ 
-      ...this.baseConditions, 
-      ...this.filterConditions 
-    });
-    const total = await countQuery.countDocuments();
-    
-    const page = Number(this.query.page) || 1;
-    const limit = Number(this.query.limit) || 10;
-    
+    const page  = Math.max(Number(this.query.page)  || 1, 1);
+    const limit = Math.min(Number(this.query.limit) || 10, 100);
+
     return {
       page,
       limit,
       total,
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     };
   }
 }
