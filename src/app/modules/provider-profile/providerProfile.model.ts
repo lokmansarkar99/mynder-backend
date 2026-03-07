@@ -86,6 +86,7 @@ const providerProfileSchema = new Schema<IProviderProfileDocument>(
     totalReviews:  { type: Number, default: 0 },
     isFeatured:    { type: Boolean, default: false },
     isTopProvider: { type: Boolean, default: false },
+    intakeStep: { type:Number, default: 1, min: 1, max: 3}
   },
   { timestamps: true }
 );

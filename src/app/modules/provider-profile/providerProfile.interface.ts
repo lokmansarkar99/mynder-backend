@@ -10,54 +10,56 @@ type IEducation = {
 };
 
 type IEmployment = {
-  employerName:    string;
-  jobTitle:        string;
-  startDate:       Date;
-  endDate:         Date | null;
+  employerName:     string;
+  jobTitle:         string;
+  startDate:        Date;
+  endDate:          Date | null;
   responsibilities: string;
-  isCurrent:       boolean;
+  isCurrent:        boolean;
 };
 
 type ISessionFee = {
-  duration: number; // 15 | 30 | 60 | 90
-  fee:      number; // e.g. 150
+  duration: number;
+  fee:      number;
 };
 
 export type IProviderProfile = {
-  user:             Types.ObjectId;
-  // Step 1 — Profile
-  fullName:         string;
-  email:            string;
-  dateOfBirth:      string;
-  genderIdentity:   GENDER_IDENTITY;
-  licenseNumber:    string;
-  licenseState:     string;
-  providerType:     'clinical_psychologist' | 'licensed_counselor' | 'social_worker' | 'psychiatrist' | 'other';
-  phone:            string;
-  officeAddress:    string;
-  city:             string;
-  profilePhoto:     string;
+  user:              Types.ObjectId;
+  // Step 1
+  fullName:          string;
+  email:             string;
+  dateOfBirth:       string;
+  genderIdentity:    GENDER_IDENTITY;
+  licenseNumber:     string;
+  licenseState:      string;
+  providerType:      'clinical_psychologist' | 'licensed_counselor' | 'social_worker' | 'psychiatrist' | 'other';
+  phone:             string;
+  officeAddress:     string;
+  city:              string;
+  profilePhoto:      string;
   professionalPhoto: string;
-  professionalVideo: string; // optional
-  // Step 2 — Background
-  education:               IEducation[];
-  affiliations:            string;
+  professionalVideo: string;
+  // Step 2
+  education:                IEducation[];
+  affiliations:             string;
   additionalCertifications: string;
-  employment:              IEmployment[];
-  cvDocument:              string;
-  licenseDocument:         string;
-  // Step 3 — Therapy Details
-  therapeuticApproaches:   string[];   // ['CBT','DBT','EMDR',...]
-  clientPopulations:        string[];   // ['Adolescents','ADHD',...]
-  sessionLengths:           number[];   // [15, 30, 60, 90]
-  sessionFormats:           SESSION_FORMAT[];
-  sessionFees:              ISessionFee[];
+  employment:               IEmployment[];
+  cvDocument:               string;
+  licenseDocument:          string;
+  // Step 3
+  therapeuticApproaches: string[];
+  clientPopulations:     string[];
+  sessionLengths:        number[];
+  sessionFormats:        SESSION_FORMAT[];
+  sessionFees:           ISessionFee[];
+  //  Intake progress — was missing
+  intakeStep:            number;
   // Admin Approval
-  applicationStatus:        APPLICATION_STATUS;
-  applicationSubmittedAt:   Date | null;
-  approvedAt:               Date | null;
-  rejectionReason:          string;
-  reviewedBy:               Types.ObjectId | null;
+  applicationStatus:       APPLICATION_STATUS;
+  applicationSubmittedAt:  Date | null;
+  approvedAt:              Date | null;
+  rejectionReason:         string;
+  reviewedBy:              Types.ObjectId | null;
   // Ratings
   averageRating:  number;
   totalReviews:   number;
