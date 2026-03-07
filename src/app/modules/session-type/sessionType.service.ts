@@ -20,7 +20,14 @@ return sessionType
 
 
 
+const getMyAllSession = async (providerId: string) => {
+    const  getMyAllSession = await SessionType.find({ provider: new Types.ObjectId(providerId)})
+
+    return getMyAllSession
+}
+
 
 export const SessionTypeServices = {
-    createSessionType
+    createSessionType,
+    getMyAllSession
 }

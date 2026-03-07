@@ -23,7 +23,20 @@ sendResponse( res, {
 
 
 
+const getMyAllSession = catchAsync(async (req: Request,  res: Response) => {
+    const result = await SessionTypeServices.getMyAllSession(req.user.id)
+
+    sendResponse( res, {
+        message: "SessionType Retrieved Successfully",
+        success: true,
+        statusCode: StatusCodes.OK,
+        data: result
+    })
+})
+
 export const SessionTypeController = {
-    createSessionType
-}
+    createSessionType,
+    getMyAllSession
+}       
+
 
