@@ -1,20 +1,17 @@
-
-import {  Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import catchAsync from '../../../shared/catchAsync';
-
 import { ClientProfileService } from './clientProfile.service';
 import sendResponse from '../../../shared/sendResponse';
 
 const saveIntakeStep = catchAsync(async (req: Request, res: Response) => {
-  const step  = parseInt(req.params.step as string, 10);
-  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+  const step = parseInt(req.params.step as string, 10);
 
   const result = await ClientProfileService.saveIntakeStep(
-    req.user._id,
+    req.user.id,
     step,
     req.body,
-    files,
+    req.files,
   );
 
   sendResponse(res, {
@@ -22,15 +19,15 @@ const saveIntakeStep = catchAsync(async (req: Request, res: Response) => {
     success:    true,
     message:    `Step ${step} saved successfully`,
     data: {
-      intakeStep:      result.intakeStep,
-      intakeCompleted: result.intakeCompleted,
+      intakeStep:      result?.intakeStep,
+      intakeCompleted: result?.intakeCompleted,
       profile:         result,
     },
   });
 });
 
 const getMyProfile = catchAsync(async (req: Request, res: Response) => {
-  const result = await ClientProfileService.getMyProfile(req.user._id);
+  const result = await ClientProfileService.getMyProfile(req.user.id);
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -41,12 +38,10 @@ const getMyProfile = catchAsync(async (req: Request, res: Response) => {
 });
 
 const updateMyProfile = catchAsync(async (req: Request, res: Response) => {
-  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
-
   const result = await ClientProfileService.updateMyProfile(
-    req.user._id,
+    req.user.id,
     req.body,
-    files,
+    req.files,
   );
 
   sendResponse(res, {

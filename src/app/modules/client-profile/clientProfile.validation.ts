@@ -70,6 +70,14 @@ export const profileUpdateSchema = z.object({
   preferredLanguage: z.string().optional(),
   emergencyContact:  emergencyContactSchema,
   billingAddress:    billingAddressSchema,
+  insurance: z.object({
+    provider:    z.string().optional(),
+    memberId:    z.string().optional(),
+    groupNumber: z.string().optional(),
+  }).optional(),
+  paymentMethod: z.enum(
+    Object.values(PAYMENT_METHOD) as [string, ...string[]]
+  ).optional(),
 });
 
 // ─── Inferred Types ───────────────────────────────────────────────────────────

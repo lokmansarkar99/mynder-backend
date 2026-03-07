@@ -1,49 +1,33 @@
+import { Types } from 'mongoose';
 import { StatusCodes } from 'http-status-codes';
 import ApiError from '../../../errors/ApiErrors';
 import { ClientProfile } from './clientProfile.model';
 import { QueryBuilder } from '../../buillder/queryBuilder';
 import {
-  TStep1Input,
-  TStep2Input,
-  TStep3Input,
-  TStep4Input,
-  TStep5Input,
-  TIntakeStepInput,
-  TProfileUpdateInput,
+  TStep1Input, TStep2Input, TStep3Input,
+  TStep4Input, TStep5Input,
+  TIntakeStepInput, TProfileUpdateInput,
 } from './clientProfile.validation';
+// profileImage Use project helpers — no more custom normalizePath
+import unlinkFile from '../../../shared/unLinkFIle';
+import { getSingleFilePath } from '../../../shared/getFilePath';
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
-
-const normalizePath = (p: string) => p.replace(/\\/g, '/');
-
-// ─── Normalize req.files ──────────────────────────────────────────────────────
-// Handles both multer .any() → File[]  and  .fields() → Record<string, File[]>
+// ─── Normalize req.files (array → Record for .any() safety) ──────────────────
 const normalizeFiles = (
-  files:
-    | Express.Multer.File[]
-    | Record<string, Express.Multer.File[]>
-    | undefined,
+  files: Express.Multer.File[] | Record<string, Express.Multer.File[]> | undefined,
 ): Record<string, Express.Multer.File[]> => {
   if (!files) return {};
-
-  // multer .any() returns an array
   if (Array.isArray(files)) {
-    return files.reduce(
-      (acc, file) => {
-        if (!acc[file.fieldname]) acc[file.fieldname] = [];
-        acc[file.fieldname].push(file);
-        return acc;
-      },
-      {} as Record<string, Express.Multer.File[]>,
-    );
+    return files.reduce((acc, file) => {
+      if (!acc[file.fieldname]) acc[file.fieldname] = [];
+      acc[file.fieldname].push(file);
+      return acc;
+    }, {} as Record<string, Express.Multer.File[]>);
   }
-
-  // multer .fields() already returns the right shape
   return files;
 };
 
-// ─── Step Update Data Builder ─────────────────────────────────────────────────
-
+// ─── Step Data Builder ────────────────────────────────────────────────────────
 const buildStepUpdateData = (
   step:    number,
   payload: TIntakeStepInput,
@@ -61,9 +45,9 @@ const buildStepUpdateData = (
         emergencyContact:  data.emergencyContact  ?? {},
         billingAddress:    data.billingAddress    ?? {},
       };
-      if (files.profilePhoto?.[0]) {
-        update.profilePhoto = normalizePath(files.profilePhoto[0].path);
-      }
+      // profileImage multer field = 'profileImage', DB field = 'profilePhoto' (was a bug before)
+      const profileImgPath = getSingleFilePath(files, 'profileImage');
+      if (profileImgPath) update.profilePhoto = profileImgPath;
       return update;
     }
 
@@ -75,17 +59,15 @@ const buildStepUpdateData = (
     case 3: {
       const data   = payload as TStep3Input;
       const update: Record<string, unknown> = {};
-      // Dot-notation prevents wiping cardPhotoFront/Back on re-submit
       if (data.insurance?.provider    != null) update['insurance.provider']    = data.insurance.provider;
       if (data.insurance?.memberId    != null) update['insurance.memberId']    = data.insurance.memberId;
       if (data.insurance?.groupNumber != null) update['insurance.groupNumber'] = data.insurance.groupNumber;
-      if (data.paymentMethod          != null) update.paymentMethod             = data.paymentMethod;
-      if (files.insuranceCardFront?.[0]) {
-        update['insurance.cardPhotoFront'] = normalizePath(files.insuranceCardFront[0].path);
-      }
-      if (files.insuranceCardBack?.[0]) {
-        update['insurance.cardPhotoBack'] = normalizePath(files.insuranceCardBack[0].path);
-      }
+      if (data.paymentMethod          != null) update.paymentMethod            = data.paymentMethod;
+      // profileImage getSingleFilePath returns "/{folder}/{filename}" directly
+      const cardFrontPath = getSingleFilePath(files, 'insuranceCardFront');
+      const cardBackPath  = getSingleFilePath(files, 'insuranceCardBack');
+      if (cardFrontPath) update['insurance.cardPhotoFront'] = cardFrontPath;
+      if (cardBackPath)  update['insurance.cardPhotoBack']  = cardBackPath;
       return update;
     }
 
@@ -116,20 +98,41 @@ const saveIntakeStep = async (
   payload:  TIntakeStepInput,
   rawFiles: Express.Multer.File[] | Record<string, Express.Multer.File[]> | undefined,
 ) => {
-  const files     = normalizeFiles(rawFiles);
+  const userObjectId = new Types.ObjectId(userId);
+  const files        = normalizeFiles(rawFiles);
+
+  // profileImage Fetch existing doc only for steps that have file uploads (1 & 3)
+  const existing = (step === 1 || step === 3)
+    ? await ClientProfile.findOne({ user: userObjectId })
+    : null;
+
+  // profileImage Delete old files BEFORE saving new ones
+  if (step === 1 && getSingleFilePath(files, 'profileImage')) {
+    if (existing?.profilePhoto) unlinkFile(existing.profilePhoto);
+  }
+  if (step === 3) {
+    if (getSingleFilePath(files, 'insuranceCardFront') && existing?.insurance?.cardPhotoFront) {
+      unlinkFile(existing.insurance.cardPhotoFront);
+    }
+    if (getSingleFilePath(files, 'insuranceCardBack') && existing?.insurance?.cardPhotoBack) {
+      unlinkFile(existing.insurance.cardPhotoBack);
+    }
+  }
+
   const rawData   = buildStepUpdateData(step, payload, files);
   const cleanData = Object.fromEntries(
     Object.entries(rawData).filter(([, v]) => v !== undefined),
   );
 
   return await ClientProfile.findOneAndUpdate(
-    { user: userId },
+    { user: userObjectId },
     {
-      $set: cleanData,
-      $max: { intakeStep: step },
+      $set:         cleanData,
+      $max:         { intakeStep: step },
+      $setOnInsert: { user: userObjectId }, // profileImage upsert-এ user field নিশ্চিত করে
     },
     {
-      new:                 true,
+      returnDocument:      'after',
       upsert:              true,
       runValidators:       true,
       setDefaultsOnInsert: true,
@@ -139,7 +142,7 @@ const saveIntakeStep = async (
 
 const getMyProfile = async (userId: string) => {
   const profile = await ClientProfile
-    .findOne({ user: userId })
+    .findOne({ user: new Types.ObjectId(userId) })
     .populate('user', 'email role isEmailVerified lastLogin createdAt');
 
   if (!profile) {
@@ -156,32 +159,63 @@ const updateMyProfile = async (
   payload:  TProfileUpdateInput,
   rawFiles: Express.Multer.File[] | Record<string, Express.Multer.File[]> | undefined,
 ) => {
-  const exists = await ClientProfile.exists({ user: userId });
-  if (!exists) throw new ApiError(StatusCodes.NOT_FOUND, 'Client profile not found');
+  const userObjectId = new Types.ObjectId(userId);
+
+  // profileImage findOne instead of exists() — same query, gives us data for old file deletion
+  const existing = await ClientProfile.findOne({ user: userObjectId });
+  if (!existing) {
+    throw new ApiError(
+      StatusCodes.NOT_FOUND,
+      'Client profile not found. Please complete your intake form first.',
+    );
+  }
 
   const files      = normalizeFiles(rawFiles);
-  const updateData: Record<string, unknown> = { ...payload };
+  const updateData: Record<string, unknown> = {};
 
-  if (files.profilePhoto?.[0]) {
-    updateData.profilePhoto = normalizePath(files.profilePhoto[0].path);
+  // Only include defined payload fields
+  Object.entries(payload as Record<string, unknown>).forEach(([key, val]) => {
+    if (val !== undefined) updateData[key] = val;
+  });
+
+  // ── Profile photo ──────────────────────────────────────────────────────────
+  const newProfileImg = getSingleFilePath(files, 'profileImage');
+  if (newProfileImg) {
+    if (existing.profilePhoto) unlinkFile(existing.profilePhoto); // profileImage delete old
+    updateData.profilePhoto = newProfileImg;                      // profileImage correct DB field
+  }
+
+  // ── Insurance card front ───────────────────────────────────────────────────
+  const newCardFront = getSingleFilePath(files, 'insuranceCardFront');
+  if (newCardFront) {
+    if (existing.insurance?.cardPhotoFront) unlinkFile(existing.insurance.cardPhotoFront);
+    updateData['insurance.cardPhotoFront'] = newCardFront;
+  }
+
+  // ── Insurance card back ────────────────────────────────────────────────────
+  const newCardBack = getSingleFilePath(files, 'insuranceCardBack');
+  if (newCardBack) {
+    if (existing.insurance?.cardPhotoBack) unlinkFile(existing.insurance.cardPhotoBack);
+    updateData['insurance.cardPhotoBack'] = newCardBack;
   }
 
   return await ClientProfile.findOneAndUpdate(
-    { user: userId },
+    { user: userObjectId },
     { $set: updateData },
-    { new: true, runValidators: true },
-  ).populate('user', 'email role lastLogin');
+    { returnDocument: 'after', runValidators: true },
+  ).populate('user', 'email role isEmailVerified lastLogin createdAt');
 };
 
 const getClientById = async (clientId: string, requesterRole: string) => {
   const profile = await ClientProfile
-    .findOne({ user: clientId })
+    .findOne({ user: new Types.ObjectId(clientId) })
     .populate('user', 'email role isEmailVerified isBlocked lastLogin createdAt');
 
-  if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Client profile not found');
+  if (!profile) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Client profile not found');
+  }
 
-  if (requesterRole === 'provider') {
-    // ✅ Fix: cast to unknown first, then to Record<string, unknown>
+  if (requesterRole === 'PROVIDER' || requesterRole === 'provider') {
     const safe = profile.toObject() as unknown as Record<string, unknown>;
     delete safe.insurance;
     delete safe.billingAddress;
@@ -201,7 +235,7 @@ const getAllClients = async (query: Record<string, unknown>) => {
     ),
     query,
   )
-    .search(['fullName', 'email', 'phone'])
+    .search(['fullName', 'phone'])
     .filter()
     .dateRange()
     .sort()
@@ -218,7 +252,7 @@ const getAllClients = async (query: Record<string, unknown>) => {
 
 const incrementSessionStats = async (userId: string, sessionFee: number) => {
   await ClientProfile.findOneAndUpdate(
-    { user: userId },
+    { user: new Types.ObjectId(userId) },
     { $inc: { totalSessions: 1, totalSpent: sessionFee } },
   );
 };
