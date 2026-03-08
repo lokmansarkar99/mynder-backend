@@ -5,6 +5,7 @@ import { UserRoutes } from "../modules/user/user.route";
 import { ClientProfileRoutes } from "../modules/client-profile/clientProfile.route";
 import { ProviderProfileRoutes } from "../modules/provider-profile/providerProfile.route";
 import { SessionTypeRouter } from "../modules/session-type/sessionType.route";
+import { AvailabilityRoutes } from "../modules/availability/availability.route";
 
 const router = express.Router()
 
@@ -17,6 +18,8 @@ router.use("/client-profile", ClientProfileRoutes)
 
 router.use("/provider", ProviderProfileRoutes)
 router.use("/session-type", SessionTypeRouter)
+
+router.use("/availability", AvailabilityRoutes)
 
 
 export default router;
