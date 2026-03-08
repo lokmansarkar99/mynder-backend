@@ -6,6 +6,7 @@ import { ClientProfileRoutes } from "../modules/client-profile/clientProfile.rou
 import { ProviderProfileRoutes } from "../modules/provider-profile/providerProfile.route";
 import { SessionTypeRouter } from "../modules/session-type/sessionType.route";
 import { AvailabilityRoutes } from "../modules/availability/availability.route";
+import { SlotRoutes } from "../modules/slot/slot.route";
 
 const router = express.Router()
 
@@ -20,6 +21,8 @@ router.use("/provider", ProviderProfileRoutes)
 router.use("/session-type", SessionTypeRouter)
 
 router.use("/availability", AvailabilityRoutes)
+
+router.use("/slot", SlotRoutes)
 
 
 export default router;
