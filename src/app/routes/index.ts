@@ -9,6 +9,7 @@ import { AvailabilityRoutes } from "../modules/availability/availability.route";
 import { SlotRoutes } from "../modules/slot/slot.route";
 import { AppointmentRoutes } from "../modules/appointment/appointment.route";
 import { StripeRoutes } from "../modules/stripe/stripe.route";
+import { ProviderPayoutRoutes } from "../modules/provider-payout/providerPayout.route";
 
 const router = express.Router()
 
@@ -29,4 +30,6 @@ router.use("/slot", SlotRoutes)
 router.use("/appointments", AppointmentRoutes)
 
 router.use("/stripe", StripeRoutes)
+
+router.use("/payouts", ProviderPayoutRoutes)
 export default router;
