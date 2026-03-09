@@ -1,7 +1,7 @@
-import { strip } from "colors"
+
 import dotenv from "dotenv"
 import path from "path"
-import { success } from "zod"
+
 
 dotenv.config({path: path.join(process.cwd(), ".env") })
 

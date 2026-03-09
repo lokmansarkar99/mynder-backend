@@ -21,6 +21,7 @@ export type ISlot = {
 
   // ── Booking Status ────────────────────────────────
   isBooked:        boolean;
+  isExpired: boolean;
   bookedBy:        Types.ObjectId | null;   // ref → User (Client)
   appointment:     Types.ObjectId | null;   // ref → Appointment
 };

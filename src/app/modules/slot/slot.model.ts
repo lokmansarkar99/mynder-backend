@@ -67,6 +67,10 @@ const slotSchema = new Schema<ISlotDocument>(
       type:    Boolean,
       default: false,
     },
+    isExpired:{
+      type: Boolean,
+      default: false
+    }, 
     bookedBy: {
       type:    Schema.Types.ObjectId,
       ref:     'User',

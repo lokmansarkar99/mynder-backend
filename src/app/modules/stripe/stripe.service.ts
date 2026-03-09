@@ -1,302 +1,154 @@
-// import Stripe from "stripe";
-// import stripe from "../../../config/stripe.config";
-// import { StatusCodes } from "http-status-codes";
-// import config      from "../../../config";
-// import ApiError    from "../../../errors/ApiErrors";
-// import { Order }   from "../order/order.model";
-// import { ORDER_STATUS, PAYMENT_METHOD, PAYMENT_STATUS } from "../../../enums/oder";
+import Stripe from 'stripe';
+import { Types } from 'mongoose';
+import { StatusCodes } from 'http-status-codes';
+import stripeClient from '../../../config/stripe.config';
+import ApiError from '../../../errors/ApiErrors';
+import { Invoice } from '../invoice/invoice.model';
+import { Appointment } from '../appointment/appointment.model';
+import { Slot } from '../slot/slot.model';
+import { PAYMENT_STATUS } from '../../../enums/payment';
+import { SESSION_TYPE } from '../../../enums/appointment';
+import { createBookingFromWebhook } from '../appointment/appointment.service';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+const PROCESSING_FEE       = 5;
+const PLATFORM_FEE_PERCENT = 15;
 
-// // =====================================================
-// // CREATE CHECKOUT SESSION
-// // User order place this  function call 
-// // Stripe-hosted payment page redirect 
-// // =====================================================
-// const createCheckoutSession = async (orderId: string, userId: string) => {
-//   // ① Order exist + ownership check
-//   const order = await Order.findOne({
-//     _id:       orderId,
-//     user:      userId,
-//     isDeleted: false,
-//   }).populate("items.product", "name thumbnail");
+// ─── calculateFees — exported, used by AppointmentService ────────────────────
+export const calculateFees = (sessionFee: number) => {
+  const processingFee = PROCESSING_FEE;
+  const totalAmount   = sessionFee + processingFee;
+  const platformFee   = +((sessionFee * PLATFORM_FEE_PERCENT) / 100).toFixed(2);
+  const netAmount     = +(sessionFee - platformFee).toFixed(2);
+  return { processingFee, totalAmount, platformFee, netAmount };
+};
 
-//   if (!order) {
-//     throw new ApiError(StatusCodes.NOT_FOUND, "Order not found");
-//   }
+// ─── 1. Stripe Webhook ────────────────────────────────────────────────────────
+const handleWebhook = async (rawBody: Buffer, signature: string) => {
+  let event: Stripe.Event;
 
-//   //  stripe payment order-এ checkout session 
-//   if (order.paymentMethod !== PAYMENT_METHOD.STRIPE) {
-//     throw new ApiError(
-//       StatusCodes.BAD_REQUEST,
-//       "This order uses Cash on Delivery, not Stripe"
-//     );
-//   }
+  try {
+    event = stripeClient.webhooks.constructEvent(
+      rawBody,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET as string,
+    );
+  } catch (err: any) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, `Webhook signature failed: ${err.message}`);
+  }
 
-//   //  Already paid check
-//   if (order.paymentStatus === PAYMENT_STATUS.PAID) {
-//     throw new ApiError(StatusCodes.BAD_REQUEST, "This order is already paid");
-//   }
+  switch (event.type) {
 
-//   //  Stripe line_items — each order item
-//   const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] =
-//     order.items.map((item) => ({
-//       price_data: {
-//         currency:     "usd",
-//         product_data: {
-//           name:   item.name,
-//           images: `${config.client_url}/uploads${item.thumbnail}` ? [
-//             // full URL  — relative path  Stripe cant show
-//             `${config.client_url}/uploads${item.thumbnail}`,
-//           ] : [],
-//         },
-//         unit_amount: Math.round(item.price * 100), // dollar → cents
-//       },
-//       quantity: item.quantity,
-//     }));
+    // ✅ Main booking event — Stripe Hosted Checkout payment complete
+    case 'checkout.session.completed': {
+      const session  = event.data.object as Stripe.Checkout.Session;
+      const metadata = session.metadata!;
 
-//   // ⑤ Shipping charge line item (যদি থাকে)
-//   if (order.shippingCharge > 0) {
-//     lineItems.push({
-//       price_data: {
-//         currency:     "usd",
-//         product_data: { name: "Shipping Charge" },
-//         unit_amount:  Math.round(order.shippingCharge * 100),
-//       },
-//       quantity: 1,
-//     });
-//   }
+      const clientId   = metadata.clientId;
+      const slotId     = metadata.slotId;
+      const sessionFee = Number(metadata.sessionFee);
+      const sessionType = (metadata.sessionType as SESSION_TYPE) ?? SESSION_TYPE.INDIVIDUAL_THERAPY;
+      const timezone   = metadata.timezone ?? 'America/New_York';
 
-//   // ⑥ Stripe Checkout Session তৈরি করো
-//   const session = await stripe.checkout.sessions.create({
-//     payment_method_types: ["card"],
-//     mode:                 "payment",
-//     line_items:           lineItems,
+      const { processingFee } = calculateFees(sessionFee);
 
-//     // ── metadata — webhook-এ orderId ফিরে পেতে ───
-//     metadata: {
-//       orderId: orderId,
-//       userId:  userId,
-//     },
+      const slot = await Slot.findById(new Types.ObjectId(slotId));
+      if (!slot || slot.isBooked) break; // safety guard
 
-//     // ── redirect URLs ─────────────────────────────
-//     success_url: `${config.stripe.success_url}?session_id={CHECKOUT_SESSION_ID}&orderId=${orderId}`,
-//     cancel_url:  `${config.stripe.cancel_url}?orderId=${orderId}`,
+      // ── Create Appointment + Invoice + Payout + Lock Slot
+      await createBookingFromWebhook({
+        clientId,
+        clientObjectId:  new Types.ObjectId(clientId),
+        slot,
+        stripeSessionId: session.id,
+        sessionType,
+        sessionFee,
+        processingFee,
+        timezone,
+      });
 
-//     // ── customer info pre-fill ────────────────────
-//     customer_email: undefined, // optional: user email দিতে পারো
-//   });
+      console.log(`[WEBHOOK] Booking created for session: ${session.id}`);
+      break;
+    }
 
-//   // ⑦ Session ID order-এ save করো (track করার জন্য)
-//   await Order.findByIdAndUpdate(orderId, {
-//     $set: { stripePaymentIntentId: session.id },
-//   });
+    // Payment failed
+    case 'checkout.session.expired': {
+      const session = event.data.object as Stripe.Checkout.Session;
+      console.log(`[WEBHOOK] Checkout expired: ${session.id}`);
+      break;
+    }
 
-//   return {
-//     sessionId:  session.id,
-//     sessionUrl: session.url,  // এই URL-এ frontend redirect করবে
-//   };
-// };
+    // Refund processed
+    case 'charge.refunded': {
+      const charge = event.data.object as Stripe.Charge;
+      await Invoice.findOneAndUpdate(
+        { stripePaymentIntentId: charge.payment_intent as string },
+        { $set: { paymentStatus: PAYMENT_STATUS.REFUNDED } },
+      );
+      break;
+    }
 
-// // =====================================================
-// // HANDLE STRIPE WEBHOOK
-// // Stripe → POST /api/v1/payment/webhook
-// // =====================================================
-// const handleWebhook = async (
-//   rawBody: Buffer,
-//   signature: string
-// ) => {
-//   let event: Stripe.Event;
+    default:
+      console.log(`[WEBHOOK] Unhandled: ${event.type}`);
+  }
 
-//   // ① Signature verify — fake request reject 
-//   try {
-//     event = stripe.webhooks.constructEvent(
-//       rawBody,
-//       signature,
-//       config.stripe.webhook_secret as string
-//     );
-//   } catch (err: any) {
-//     throw new ApiError(
-//       StatusCodes.BAD_REQUEST,
-//       `Webhook signature verification failed: ${err.message}`
-//     );
-//   }
+  return { received: true };
+};
 
-//   // ② Event type handle
-//   switch (event.type) {
+// ─── 2. Refund Payment ────────────────────────────────────────────────────────
+const refundPayment = async (
+  appointmentId: string,
+  reason: Stripe.RefundCreateParams.Reason = 'requested_by_customer',
+) => {
+  const appointment = await Appointment.findById(new Types.ObjectId(appointmentId));
+  if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
 
-//     // StripeController Payment successful
-//     case "checkout.session.completed": {
-//       const session = event.data.object as Stripe.Checkout.Session;
+  const invoice = await Invoice.findOne({ appointment: appointment._id });
+  if (!invoice || !(invoice as any).stripePaymentIntentId) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Invoice or payment not found');
+  }
+  if ((invoice as any).paymentStatus === PAYMENT_STATUS.REFUNDED) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Payment already refunded');
+  }
 
-//       if (session.payment_status === "paid") {
-//         const orderId = session.metadata?.orderId;
+  // For Checkout Sessions → retrieve payment intent from session
+  const session       = await stripeClient.checkout.sessions.retrieve(
+    (invoice as any).stripePaymentIntentId,
+  );
+  const paymentIntent = session.payment_intent as string;
 
-//         if (orderId) {
-//           await Order.findByIdAndUpdate(orderId, {
-//             $set: {
-//               paymentStatus:         PAYMENT_STATUS.PAID,
-//               status:                ORDER_STATUS.PAID,
-//               stripePaymentIntentId: session.payment_intent as string,
-//             },
-//           });
-//           console.log(`StripeController Order ${orderId} marked as PAID`);
-//         }
-//       }
-//       break;
-//     }
+  const refund = await stripeClient.refunds.create({ payment_intent: paymentIntent, reason });
 
-//     //  Payment failed
-//     case "payment_intent.payment_failed": {
-//       const paymentIntent = event.data.object as Stripe.PaymentIntent;
-//       const orderId       = paymentIntent.metadata?.orderId;
+  await Invoice.findByIdAndUpdate((invoice as any)._id, {
+    $set: { paymentStatus: PAYMENT_STATUS.REFUNDED },
+  });
 
-//       if (orderId) {
-//         await Order.findByIdAndUpdate(orderId, {
-//           $set: { paymentStatus: PAYMENT_STATUS.FAILED },
-//         });
-//         console.log(`❌ Order ${orderId} payment FAILED`);
-//       }
-//       break;
-//     }
+  return {
+    refundId: refund.id,
+    status:   refund.status,
+    amount:   refund.amount ? refund.amount / 100 : 0,
+  };
+};
 
-//     //  Refund
-//     case "charge.refunded": {
-//       const charge  = event.data.object as Stripe.Charge;
-//       const session = await stripe.checkout.sessions.list({
-//         payment_intent: charge.payment_intent as string,
-//         limit: 1,
-//       });
+// ─── 3. Get Payment Status ────────────────────────────────────────────────────
+const getPaymentStatus = async (appointmentId: string, userId: string) => {
+  const appointment = await Appointment.findById(new Types.ObjectId(appointmentId));
+  if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
 
-//       const orderId = session.data[0]?.metadata?.orderId;
-//       if (orderId) {
-//         await Order.findByIdAndUpdate(orderId, {
-//           $set: {
-//             paymentStatus: PAYMENT_STATUS.REFUNDED,
-//             status:        ORDER_STATUS.REFUNDED,
-//           },
-//         });
-//         console.log(` Order ${orderId} REFUNDED`);
-//       }
-//       break;
-//     }
+  const isParticipant =
+    appointment.client.toString()   === userId ||
+    appointment.provider.toString() === userId;
+  if (!isParticipant) throw new ApiError(StatusCodes.FORBIDDEN, 'Not authorized');
 
-//     default:
-//       console.log(`Unhandled Stripe event: ${event.type}`);
-//   }
+  const invoice = await Invoice.findOne({ appointment: appointment._id })
+    .select('invoiceNumber sessionFee processingFee totalAmount paymentStatus paidAt');
 
-//   return { received: true };
-// };
+  return { appointment, invoice };
+};
 
-// // =====================================================
-// // GET PAYMENT STATUS
-// // Order-এর payment status check
-// // =====================================================
-// const getPaymentStatus = async (orderId: string, userId: string) => {
-//   const order = await Order.findOne({
-//     _id:       orderId,
-//     user:      userId,
-//     isDeleted: false,
-//   })
-//     .select("status paymentStatus paymentMethod stripePaymentIntentId total createdAt")
-//     .lean();
-
-//   if (!order) {
-//     throw new ApiError(StatusCodes.NOT_FOUND, "Order not found");
-//   }
-
-//   return order;
-// };
-
-// // =====================================================
-// // VERIFY SESSION (success page-এ redirect হওয়ার পর)
-// // Frontend success page-এ session verify করতে
-// // =====================================================
-// const verifySession = async (sessionId: string, userId: string) => {
-//   const session = await stripe.checkout.sessions.retrieve(sessionId);
-
-//   if (!session) {
-//     throw new ApiError(StatusCodes.NOT_FOUND, "Stripe session not found");
-//   }
-
-//   const orderId = session.metadata?.orderId;
-
-//   if (!orderId) {
-//     throw new ApiError(StatusCodes.BAD_REQUEST, "Invalid session");
-//   }
-
-//   const order = await Order.findOne({
-//     _id:       orderId,
-//     user:      userId,
-//     isDeleted: false,
-//   })
-//     .populate("items.product", "name thumbnail price")
-//     .lean();
-
-//   if (!order) {
-//     throw new ApiError(StatusCodes.NOT_FOUND, "Order not found");
-//   }
-
-//   return {
-//     session: {
-//       id:             session.id,
-//       paymentStatus:  session.payment_status,
-//       amountTotal:    session.amount_total ? session.amount_total / 100 : 0,
-//       currency:       session.currency,
-//     },
-//     order,
-//   };
-// };
-
-// // =====================================================
-// // ADMIN: REFUND PAYMENT
-// // =====================================================
-// const refundPayment = async (orderId: string) => {
-//   const order = await Order.findById(orderId);
-
-//   if (!order) {
-//     throw new ApiError(StatusCodes.NOT_FOUND, "Order not found");
-//   }
-
-//   if (order.paymentStatus !== PAYMENT_STATUS.PAID) {
-//     throw new ApiError(
-//       StatusCodes.BAD_REQUEST,
-//       "Only paid orders can be refunded"
-//     );
-//   }
-
-//   if (!order.stripePaymentIntentId) {
-//     throw new ApiError(
-//       StatusCodes.BAD_REQUEST,
-//       "No payment intent found for this order"
-//     );
-//   }
-
-//   // Stripe- refund 
-//   const refund = await stripe.refunds.create({
-//     payment_intent: order.stripePaymentIntentId,
-//     //if amount partial refund — else full refund
-//   });
-
-//   // Order update — webhook- handle , update after webhook event 
-//    await Order.findByIdAndUpdate(orderId, {
-//     $set: {
-//       paymentStatus: PAYMENT_STATUS.REFUNDED,
-//       status:        ORDER_STATUS.REFUNDED,
-//     },
-//   });
-
-//   return {
-//     message:  "Refund initiated successfully",
-//     refundId: refund.id,
-//     status:   refund.status,
-//     amount:   refund.amount / 100,
-//   };
-// };
-
-// export const StripeService = {
-//   createCheckoutSession,
-//   handleWebhook,
-//   getPaymentStatus,
-//   verifySession,
-//   refundPayment,
-// };
+export const StripeService = {
+  calculateFees,
+  handleWebhook,
+  refundPayment,
+  getPaymentStatus,
+};

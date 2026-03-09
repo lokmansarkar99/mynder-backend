@@ -7,7 +7,7 @@ import router from "./app/routes"
 import globalErrorHandler from "./app/middlewares/globalErrorHandler"
 import { globalRateLimiter } from "./app/middlewares/rateLimiter"   
 import config from "./config"
-// import { StripeController } from "./app/modules/stripe/stripe.controller"
+import { StripeController } from "./app/modules/stripe/stripe.controller"
 import passport from './config/passport'
 
 const app:Application = express()
@@ -27,7 +27,7 @@ app.use(cors( {
 }))
 
 // Stripe Webhook
-// app.post("/api/v1/stripe/webhook", express.raw({type: "application/json"}), StripeController.handleWebhook)
+app.post("/api/v1/stripe/webhook", express.raw({type: "application/json"}), StripeController.handleWebhook)
 
 // Parsers
 app.use(cookieParser())

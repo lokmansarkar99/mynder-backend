@@ -1,47 +1,29 @@
-// import express         from "express";
-// import { checkAuth }   from "../../middlewares/checkAuth";
-// import { USER_ROLES }  from "../../../enums/user";
-// import { StripeController } from "./stripe.controller";
+import express from 'express';
+import { checkAuth }        from '../../middlewares/checkAuth';
+import { USER_ROLES }       from '../../../enums/user';
+import { StripeController } from './stripe.controller';
 
-// const router = express.Router();
+const router = express.Router();
 
+// ⚠️ Webhook — raw body required — BEFORE express.json() in app.ts
+router.post(
+  '/webhook',
+  express.raw({ type: 'application/json' }),
+  StripeController.handleWebhook,
+);
 
-// // ══════════════════════════════════════════════════
-// // USER
-// // ══════════════════════════════════════════════════
+// Payment status
+router.get(
+  '/status/:appointmentId',
+  checkAuth(USER_ROLES.CLIENT, USER_ROLES.PROVIDER, USER_ROLES.ADMIN),
+  StripeController.getPaymentStatus,
+);
 
-// // POST /api/v1/payment/create-checkout-session
-// // Body: { "orderId": "..." }
-// router.post(
-//   "/create-checkout-session",
-//   checkAuth(USER_ROLES.USER, USER_ROLES.ADMIN),
-//   StripeController.createCheckoutSession
-// );
+// Admin refund
+router.post(
+  '/refund/:appointmentId',
+  checkAuth(USER_ROLES.ADMIN),
+  StripeController.refundPayment,
+);
 
-// // GET /api/v1/payment/status/:orderId
-// router.get(
-//   "/status/:orderId",
-//   checkAuth(USER_ROLES.USER, USER_ROLES.ADMIN),
-//   StripeController.getPaymentStatus
-// );
-
-// // GET /api/v1/payment/verify-session?sessionId=cs_test_xxx
-// // call after redirect from success page
-// router.get(
-//   "/verify-session",
-//   checkAuth(USER_ROLES.USER, USER_ROLES.ADMIN),
-//   StripeController.verifySession
-// );
-
-// // ══════════════════════════════════════════════════
-// // ADMIN
-// // ══════════════════════════════════════════════════
-
-// // POST /api/v1/payment/refund/:orderId
-// router.post(
-//   "/refund/:orderId",
-//   checkAuth(USER_ROLES.ADMIN),
-//   StripeController.refundPayment
-// );
-
-// export const StripeRoutes = router;
+export const StripeRoutes = router;

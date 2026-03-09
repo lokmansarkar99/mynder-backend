@@ -7,6 +7,8 @@ import { ProviderProfileRoutes } from "../modules/provider-profile/providerProfi
 import { SessionTypeRouter } from "../modules/session-type/sessionType.route";
 import { AvailabilityRoutes } from "../modules/availability/availability.route";
 import { SlotRoutes } from "../modules/slot/slot.route";
+import { AppointmentRoutes } from "../modules/appointment/appointment.route";
+import { StripeRoutes } from "../modules/stripe/stripe.route";
 
 const router = express.Router()
 
@@ -24,5 +26,7 @@ router.use("/availability", AvailabilityRoutes)
 
 router.use("/slot", SlotRoutes)
 
+router.use("/appointments", AppointmentRoutes)
 
+router.use("/stripe", StripeRoutes)
 export default router;
