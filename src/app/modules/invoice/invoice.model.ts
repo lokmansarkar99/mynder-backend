@@ -18,8 +18,8 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
 
     description:   { type: String, default: '' },
     sessionFee:    { type: Number, required: true },
-    processingFee: { type: Number, default: 5 },
-    totalAmount:   { type: Number, required: true },
+    processingFee: { type: Number, default: 0 },
+    totalAmount:   { type: Number, default: 0 },
 
     paymentMethod: { type: String, enum: Object.values(PAYMENT_METHOD), required: true },
     paymentStatus: { type: String, enum: Object.values(PAYMENT_STATUS), default: PAYMENT_STATUS.PENDING },
@@ -33,14 +33,15 @@ const invoiceSchema = new Schema<IInvoiceDocument>(
 );
 
 // Auto-generate invoice number: INV-2026-03-001
-invoiceSchema.pre('save', async function () {
+invoiceSchema.pre('validate', async function () {
   if (this.isNew) {
-    const now     = new Date();
-    const year    = now.getFullYear();
-    const month   = String(now.getMonth() + 1).padStart(2, '0');
-    const count   = await model('Invoice').countDocuments();
+    const now   = new Date();
+    const year  = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const count = await model('Invoice').countDocuments();
+
     this.invoiceNumber = `INV-${year}-${month}-${String(count + 1).padStart(3, '0')}`;
-    this.totalAmount   = this.sessionFee + this.processingFee;
+    this.totalAmount   = this.sessionFee + this.processingFee; 
   }
 });
 

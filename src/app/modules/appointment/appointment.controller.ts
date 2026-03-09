@@ -4,7 +4,7 @@ import catchAsync from '../../../shared/catchAsync';
 import sendResponse from '../../../shared/sendResponse';
 import { AppointmentService } from './appointment.service';
 
-// ─── 1. Create Checkout Session ───────────────────────────────────────────────
+// ─── 1. Create Checkout Session 
 const createCheckoutSession = catchAsync(async (req: Request, res: Response) => {
   const result = await AppointmentService.createCheckoutSession(
     req.user.id,
@@ -23,7 +23,7 @@ const createCheckoutSession = catchAsync(async (req: Request, res: Response) => 
   });
 });
 
-// ─── 2. Get My Appointments ───────────────────────────────────────────────────
+// ─── 2. Get My Appointments ────
 const getMyAppointments = catchAsync(async (req: Request, res: Response) => {
   const result = await AppointmentService.getMyAppointments(
     req.user.id,
@@ -40,11 +40,12 @@ const getMyAppointments = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-// ─── 3. Get Appointment By ID ─────────────────────────────────────────────────
+// ─── 3. Get Appointment By ID ──
 const getAppointmentById = catchAsync(async (req: Request, res: Response) => {
   const result = await AppointmentService.getAppointmentById(
     req.params.id as string,
     req.user.id,
+    req.user.role
   );
 
   sendResponse(res, {
@@ -55,7 +56,7 @@ const getAppointmentById = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-// ─── 4. Cancel Appointment ────────────────────────────────────────────────────
+// ─── 4. Cancel Appointment ─────
 const cancelAppointment = catchAsync(async (req: Request, res: Response) => {
   const result = await AppointmentService.cancelAppointment(
     req.params.id as string,
@@ -99,7 +100,7 @@ const getProviderTodayAppointments = catchAsync(async (req: Request, res: Respon
   });
 });
 
-// ─── 7. Start Session ─────────────────────────────────────────────────────────
+// ─── 7. Start Session ──────────
 const startSession = catchAsync(async (req: Request, res: Response) => {
   const result = await AppointmentService.startSession(
     req.params.id as string,
@@ -114,7 +115,7 @@ const startSession = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-// ─── 8. Complete Session ──────────────────────────────────────────────────────
+// ─── 8. Complete Session ───────
 const completeSession = catchAsync(async (req: Request, res: Response) => {
   const result = await AppointmentService.completeSession(
     req.params.id as string,
@@ -129,7 +130,7 @@ const completeSession = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-// ─── 9. Mark No-Show ──────────────────────────────────────────────────────────
+// ─── 9. Mark No-Show ───────────
 const markNoShow = catchAsync(async (req: Request, res: Response) => {
   const result = await AppointmentService.markNoShow(
     req.params.id as string,
@@ -144,7 +145,7 @@ const markNoShow = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-// ─── 10. Add Session Summary ──────────────────────────────────────────────────
+// ─── 10. Add Session Summary ───
 const addSessionSummary = catchAsync(async (req: Request, res: Response) => {
   const result = await AppointmentService.addSessionSummary(
     req.params.id as string,

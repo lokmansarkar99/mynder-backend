@@ -17,8 +17,8 @@ const appointmentSchema = new Schema<IAppointmentDocument>(
 
     // ── Session Info ──────────────────────────────────────────
     sessionType:    { type: String, enum: Object.values(SESSION_TYPE), required: true },
-    sessionTypeRef: { type: Schema.Types.ObjectId, ref: 'SessionType', default: null }, // ✅
-    sessionName:    { type: String, default: '' },    // ✅ denormalized
+    sessionTypeRef: { type: Schema.Types.ObjectId, ref: 'SessionType', default: null }, 
+    sessionName:    { type: String, default: '' },    
 
     scheduledAt:     { type: Date,   required: true },
     durationMinutes: { type: Number, enum: [15, 30, 60, 90], required: true },

@@ -7,7 +7,7 @@ import { AppointmentValidation } from './appointment.validation';
 
 const router = express.Router();
 
-// ── Booking — Stripe Hosted Checkout ─────────────────────────────────────────
+// ── Booking — Stripe Hosted Checkout ────────
 // Returns { checkoutUrl, sessionId } → frontend redirects to checkoutUrl
 router.post(
   '/create-checkout-session',
@@ -16,28 +16,28 @@ router.post(
   AppointmentController.createCheckoutSession,
 );
 
-// ── Client + Provider ─────────────────────────────────────────────────────────
+// ── Client + Provider 
 router.get(
   '/my',
   checkAuth(USER_ROLES.CLIENT, USER_ROLES.PROVIDER),
   AppointmentController.getMyAppointments,
 );
 
-// ── Provider ──────────────────────────────────────────────────────────────────
+// ── Provider 
 router.get(
   '/provider/today',
   checkAuth(USER_ROLES.PROVIDER),
   AppointmentController.getProviderTodayAppointments,
 );
 
-// ── Admin ─────────────────────────────────────────────────────────────────────
+// ── Admin ───
 router.get(
   '/admin/all',
   checkAuth(USER_ROLES.ADMIN),
   AppointmentController.getAllAppointments,
 );
 
-// ── Param routes — MUST be after named routes ─────────────────────────────────
+// ── Param routes —
 router.get(
   '/:id',
   checkAuth(USER_ROLES.CLIENT, USER_ROLES.PROVIDER, USER_ROLES.ADMIN),

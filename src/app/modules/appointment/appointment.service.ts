@@ -43,7 +43,7 @@ export const createBookingFromWebhook = async (
   const scheduledAt = new Date(slot.date);
   scheduledAt.setUTCHours(startHour, startMin, 0, 0);
 
-  // ── Create Appointment ──────────────────────────────────────────────────────
+  // ── Create Appointment ─────
   const appointment = await Appointment.create({
     client:          clientObjectId,
     provider:        slot.provider,
@@ -58,11 +58,11 @@ export const createBookingFromWebhook = async (
     meetingLink:     slot.meetingLink     ?? '',
     meetingId:       slot.meetingId       ?? '',
     meetingPassword: slot.meetingPassword ?? '',
-    paymentIntentId: stripeSessionId,     // store checkout session ID
+    paymentIntentId: stripeSessionId,    
     status:          APPOINTMENT_STATUS.UPCOMING,
   }) as IAppointmentDocument;
 
-  // ── Lock Slot ───────────────────────────────────────────────────────────────
+  // ── Lock Slot 
   await Slot.findByIdAndUpdate(slot._id, {
     $set: {
       isBooked:    true,
@@ -71,7 +71,7 @@ export const createBookingFromWebhook = async (
     },
   });
 
-  // ── Create Invoice ──────────────────────────────────────────────────────────
+  // ── Create Invoice ─────────
   const invoice = await Invoice.create({
     client:      clientObjectId,
     provider:    slot.provider,
@@ -87,22 +87,22 @@ export const createBookingFromWebhook = async (
     stripePaymentIntentId: stripeSessionId,
   });
 
-  // ── Create ProviderPayout ───────────────────────────────────────────────────
+  // ── Create ProviderPayout ──
   await ProviderPayout.create({
     provider:           slot.provider,
     appointment:        appointment._id,
     grossAmount:        sessionFee,
-    platformFeePercent: 15,
+    platformFeePercent: Number(config.fees.platform_fee_percent),
     status:             'pending',
   });
 
-  // ── Link Invoice → Appointment ──────────────────────────────────────────────
+  // ── Link Invoice → Appointment────
   await Appointment.findByIdAndUpdate(appointment._id, {
     $set: { invoice: (invoice as any)._id },
   });
 };
 
-// ─── 1. Create Checkout Session ───────────────────────────────────────────────
+// ─── 1. Create Checkout Session─────
 // Returns Stripe hosted checkout URL → frontend redirects to it
 const createCheckoutSession = async (
   clientId: string,
@@ -168,7 +168,7 @@ const createCheckoutSession = async (
   };
 };
 
-// ─── 2. Get My Appointments ───────────────────────────────────────────────────
+// ─── 2. Get My Appointments ──
 const getMyAppointments = async (
   userId: string,
   role:   'CLIENT' | 'PROVIDER',
@@ -198,8 +198,8 @@ const getMyAppointments = async (
   return { data, meta };
 };
 
-// ─── 3. Get Appointment By ID ─────────────────────────────────────────────────
-const getAppointmentById = async (appointmentId: string, userId: string) => {
+// ─── 3. Get Appointment By ID 
+const getAppointmentById = async (appointmentId: string, userId: string, role: string) => {
   const appointment = await Appointment.findById(new Types.ObjectId(appointmentId))
     .populate('client',   'email name')
     .populate('provider', 'email name')
@@ -208,18 +208,10 @@ const getAppointmentById = async (appointmentId: string, userId: string) => {
 
   if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
 
-  const isParticipant =
-    appointment.client.toString()   === userId ||
-    appointment.provider.toString() === userId;
-
-  if (!isParticipant) {
-    throw new ApiError(StatusCodes.FORBIDDEN, 'Not authorized to view this appointment');
-  }
-
   return appointment;
 };
 
-// ─── 4. Cancel Appointment ────────────────────────────────────────────────────
+// ─── 4. Cancel Appointment ───
 const cancelAppointment = async (
   appointmentId: string,
   userId:        string,
@@ -275,7 +267,7 @@ const cancelAppointment = async (
   return updated;
 };
 
-// ─── 5. Get All Appointments (Admin) ──────────────────────────────────────────
+// ─── 5. Get All Appointments (Admin)
 const getAllAppointments = async (query: Record<string, unknown>) => {
   const appointmentQuery = new QueryBuilder(
     Appointment.find()
@@ -312,7 +304,7 @@ const getProviderTodayAppointments = async (providerId: string) => {
     .populate('slot',   'startTime endTime');
 };
 
-// ─── 7. Start Session ─────────────────────────────────────────────────────────
+// ─── 7. Start Session ────────
 const startSession = async (appointmentId: string, providerId: string) => {
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
@@ -328,7 +320,7 @@ const startSession = async (appointmentId: string, providerId: string) => {
   );
 };
 
-// ─── 8. Complete Session ──────────────────────────────────────────────────────
+// ─── 8. Complete Session ─────
 const completeSession = async (appointmentId: string, providerId: string) => {
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
@@ -344,7 +336,7 @@ const completeSession = async (appointmentId: string, providerId: string) => {
   );
 };
 
-// ─── 9. Mark No-Show ──────────────────────────────────────────────────────────
+// ─── 9. Mark No-Show ─────────
 const markNoShow = async (appointmentId: string, userId: string) => {
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
@@ -360,7 +352,7 @@ const markNoShow = async (appointmentId: string, userId: string) => {
   );
 };
 
-// ─── 10. Add Session Summary ──────────────────────────────────────────────────
+// ─── 10. Add Session Summary ─
 const addSessionSummary = async (
   appointmentId: string,
   providerId:    string,

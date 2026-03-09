@@ -6,9 +6,9 @@ export type IProviderPayout = {
   provider:           Types.ObjectId;
   appointment:        Types.ObjectId;
   grossAmount:        number;     // full session fee
-  platformFeePercent: number;     // default: 15
-  platformFee:        number;     // auto-calculated
-  netAmount:          number;     // grossAmount - platformFee
+  platformFeePercent: number;     
+  platformFee:        number;     
+  netAmount:          number;     
   status:             PAYOUT_STATUS;
   payoutDate:         Date | null;
   failureReason:      string;

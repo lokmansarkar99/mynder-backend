@@ -9,12 +9,13 @@ import { Slot } from '../slot/slot.model';
 import { PAYMENT_STATUS } from '../../../enums/payment';
 import { SESSION_TYPE } from '../../../enums/appointment';
 import { createBookingFromWebhook } from '../appointment/appointment.service';
+import config from '../../../config';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const PROCESSING_FEE       = 5;
-const PLATFORM_FEE_PERCENT = 15;
+// ─── Constants 
+const PROCESSING_FEE       = Number(config.fees.processing_fee)
+const PLATFORM_FEE_PERCENT = Number(config.fees.platform_fee_percent)
 
-// ─── calculateFees — exported, used by AppointmentService ────────────────────
+// ─── calculateFees — exported, used by AppointmentService 
 export const calculateFees = (sessionFee: number) => {
   const processingFee = PROCESSING_FEE;
   const totalAmount   = sessionFee + processingFee;
@@ -23,7 +24,7 @@ export const calculateFees = (sessionFee: number) => {
   return { processingFee, totalAmount, platformFee, netAmount };
 };
 
-// ─── 1. Stripe Webhook ────────────────────────────────────────────────────────
+// ─── 1. Stripe Webhook ────
 const handleWebhook = async (rawBody: Buffer, signature: string) => {
   let event: Stripe.Event;
 
@@ -39,7 +40,7 @@ const handleWebhook = async (rawBody: Buffer, signature: string) => {
 
   switch (event.type) {
 
-    // ✅ Main booking event — Stripe Hosted Checkout payment complete
+    //  Main booking event — Stripe Hosted Checkout payment complete
     case 'checkout.session.completed': {
       const session  = event.data.object as Stripe.Checkout.Session;
       const metadata = session.metadata!;
@@ -95,7 +96,7 @@ const handleWebhook = async (rawBody: Buffer, signature: string) => {
   return { received: true };
 };
 
-// ─── 2. Refund Payment ────────────────────────────────────────────────────────
+// ─── 2. Refund Payment ────
 const refundPayment = async (
   appointmentId: string,
   reason: Stripe.RefundCreateParams.Reason = 'requested_by_customer',
@@ -130,7 +131,7 @@ const refundPayment = async (
   };
 };
 
-// ─── 3. Get Payment Status ────────────────────────────────────────────────────
+// ─── 3. Get Payment Status 
 const getPaymentStatus = async (appointmentId: string, userId: string) => {
   const appointment = await Appointment.findById(new Types.ObjectId(appointmentId));
   if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');

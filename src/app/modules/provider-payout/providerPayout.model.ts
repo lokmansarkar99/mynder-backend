@@ -1,6 +1,7 @@
 import { Schema, model } from 'mongoose';
 import { IProviderPayoutDocument, IProviderPayoutModel } from './providerPayout.interface';
 import { PAYOUT_STATUS } from '../../../enums/payment';
+import config from '../../../config';
 
 const providerPayoutSchema = new Schema<IProviderPayoutDocument>(
   {
@@ -9,7 +10,7 @@ const providerPayoutSchema = new Schema<IProviderPayoutDocument>(
     appointment: { type: Schema.Types.ObjectId, ref: 'Appointment', required: true },
 
     grossAmount:        { type: Number, required: true },
-    platformFeePercent: { type: Number, default: 15 },
+    platformFeePercent: { type: Number, default: Number(config.fees.platform_fee_percent) },
     platformFee:        { type: Number },
     netAmount:          { type: Number },
 

@@ -1,4 +1,4 @@
-// ── PaymentIntent create করার জন্য
+
 export type TCreatePaymentIntentPayload = {
   slotId:          string;
   paymentMethodId: string;
@@ -7,19 +7,19 @@ export type TCreatePaymentIntentPayload = {
   sessionType?:    string;  
 };
 
-// ── Webhook event types — আমরা যা handle করবো
+
 export type TStripeWebhookEvent =
   | 'payment_intent.succeeded'
   | 'payment_intent.payment_failed'
   | 'charge.refunded';
 
-// ── PaymentIntent metadata — webhook-এ ফিরে পাবো
-// ✅ Fix: sessionType added
+
+
 export type TPaymentIntentMetadata = {
   clientId:    string;
   slotId:      string;
   sessionFee:  string;
-  sessionType: string;   // ✅ new
+  sessionType: string;   
 };
 
 

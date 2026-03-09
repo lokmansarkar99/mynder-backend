@@ -47,6 +47,10 @@ export default {
         client_id: process.env.GOOGLE_CLIENT_ID,
         client_secret: process.env.GOOGLE_CLIENT_SECRET,
         callback_url: process.env.GOOGLE_CALLBACK_URL
+    },
+    fees: {
+        processing_fee:process.env.PROCESSING_FEE,
+        platform_fee_percent: process.env.PLATFORM_FEE_PERCENT
     }
 
 }

@@ -8,7 +8,7 @@ const router = express.Router();
 // ⚠️ Webhook — raw body required — BEFORE express.json() in app.ts
 router.post(
   '/webhook',
-  express.raw({ type: 'application/json' }),
+
   StripeController.handleWebhook,
 );
 
