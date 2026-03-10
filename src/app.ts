@@ -1,69 +1,77 @@
-import express,  {Application ,  Request, Response} from "express"
-import cors from 'cors'
-import cookieParser from "cookie-parser"
-import {StatusCodes} from "http-status-codes"
-import {Morgan} from "./shared/morgan"
-import router from "./app/routes"
-import globalErrorHandler from "./app/middlewares/globalErrorHandler"
-import { globalRateLimiter } from "./app/middlewares/rateLimiter"   
-import config from "./config"
-import { StripeController } from "./app/modules/stripe/stripe.controller"
-import passport from './config/passport'
+import express, { Application, Request, Response } from 'express';
+import cors         from 'cors';
+import cookieParser from 'cookie-parser';
+import { StatusCodes } from 'http-status-codes';
+import { Morgan }   from './shared/morgan';
+import router       from './app/routes';
+import globalErrorHandler from './app/middlewares/globalErrorHandler';
+import { globalRateLimiter } from './app/middlewares/rateLimiter';
+import config       from './config';
+import { StripeController } from './app/modules/stripe/stripe.controller';
+import passport     from './config/passport';
 
-const app:Application = express()
+const app: Application = express();
 
-// Logger - Morgan
-app.use(Morgan.successHandler)
-app.use(Morgan.errorHandler)
+// ─── Logger ───────────────────────────────────────────────────────────────────
+app.use(Morgan.successHandler);
+app.use(Morgan.errorHandler);
 
-// Rate Limiter
-app.use(globalRateLimiter)
+// ─── Rate Limiter ─────────────────────────────────────────────────────────────
+app.use(globalRateLimiter);
 
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+// Updated to array to support multiple origins 
+app.use(
+  cors({
+    origin: [
+      config.client_url as string,
+      'http://localhost:3000',
+      'http://localhost:5173',
+    ].filter(Boolean),
+    credentials: true,
+  }),
+);
 
-// CORS
-app.use(cors( {
-    origin: config.client_url,
-    credentials: true   
-}))
+// ─── Stripe Webhook ───────────────────────────────────────────────────────────
+// MUST be before express.json() — Stripe needs raw body
+app.post(
+  '/api/v1/stripe/webhook',
+  express.raw({ type: 'application/json' }),
+  StripeController.handleWebhook,
+);
 
-// Stripe Webhook
-app.post("/api/v1/stripe/webhook", express.raw({type: "application/json"}), StripeController.handleWebhook)
+// ─── Parsers ──────────────────────────────────────────────────────────────────
+app.use(cookieParser());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Parsers
-app.use(cookieParser())
-app.use(express.json())
-app.use(express.urlencoded({extended:true}))
+// ─── Passport ─────────────────────────────────────────────────────────────────
+app.use(passport.initialize());
 
+// ─── Static Files ─────────────────────────────────────────────────────────────
+app.use('/api/v1/uploads', express.static('uploads'));
 
-// Passport
-app.use(passport.initialize())
+// ─── Health Check ─────────────────────────────────────────────────────────────
+app.get('/', (_req: Request, res: Response) => {
+  res.status(StatusCodes.OK).json({
+    success: true,
+    message: 'Mynder API Server is running 🚀',
+  });
+});
 
-// Static Files
+// ─── API Routes ───────────────────────────────────────────────────────────────
+app.use('/api/v1', router);
 
-// Health Check
-app.get("/", (_req:Request, res:Response) => {
-    res.status(StatusCodes.OK).json({
-        success:true,
-        message: "Server is running",
-    })
-})
+// ─── 404 Handler ──────────────────────────────────────────────────────────────
+app.use((req: Request, res: Response) => {
+  res.status(StatusCodes.NOT_FOUND).json({
+    success: false,
+    message: 'Not Found',
+    errorMessages: [{ path: req.originalUrl, message: "API Doesn't Exist" }],
+  });
+});
 
-// API Routes
-app.use("/api/v1", router)
-app.use("/api/v1/uploads", express.static('uploads'))
-
-// 404 Handler
-
-app.use((req: Request, res:Response) => {
-    res.status(StatusCodes.NOT_FOUND).json({
-        success:false,
-        message: "Not Found",
-        errorMessages: [{ path: req.originalUrl, message: "API Doesn't Exist"}]
-    })
-})
-
-
-// Global Error Handler
-app.use(globalErrorHandler)
+// ─── Global Error Handler ─────────────────────────────────────────────────────
+app.use(globalErrorHandler);
 
 export default app;
