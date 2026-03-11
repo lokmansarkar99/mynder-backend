@@ -8,7 +8,7 @@ UpdateMyProfilePayload,
 UpdateUserStatusPayload,
 BlockUnblockUserPayload,
 } from "./user.validation";
-import { STATUS } from "../../../enums/user";
+import { STATUS, USER_ROLES } from "../../../enums/user";
 
 // ── Get My Profile ─────────────────────────────────
 const getMyProfile = async (userId: string) => {
@@ -53,40 +53,6 @@ userId,
 return updated;
 };
 
-// ── Admin: Get All Users ───────────────────────────
-const getAllUsers = async (query: Record<string, any>) => {
-const page = Number(query.page) || 1
-const limit = Number(query.limit) || 10
-const skip = (page - 1) * limit;
-
-const filter: Record<string, any> = { isDeleted: false }
-
-if (query.role) filter.role = query.role
-if (query.status) filter.status = query.status
-if (query.isBlocked) filter.isBlocked = query.isBlocked === 'true'
-
-if (query.search) {
-filter.$or = [
-{ email: { $regex: query.search, $options: "i" } },
-{ name: { $regex: query.search, $options: "i" } },
-]
-}
-
-const [users, total] = await Promise.all([
-User.find(filter).skip(skip).limit(limit).lean(),
-User.countDocuments(filter)
-])
-
-return {
-users,
-meta: {
-page,
-limit,
-total,
-totalPages: Math.ceil(total / limit)
-}
-}
-}
 
 // ── Admin: Get Single User ─────────────────────────
 const getUserById = async (userId: string) => {
@@ -140,13 +106,139 @@ await user.save()
 
 return { message: 'User deleted successfully' }
 }
+// ─── CLIENT Dashboard — Browse all active Providers ──────────────────────────
+const getAllProviders = async (
+  search?: string,
+  page:    number = 1,
+  limit:   number = 20,
+) => {
+  const filter: any = {
+    role:     USER_ROLES.PROVIDER,
+    status:   STATUS.ACTIVE,
+    verified: true,
+  };
+
+  if (search?.trim()) {
+    filter.$or = [
+      { name:  { $regex: search.trim(), $options: 'i' } },
+      { email: { $regex: search.trim(), $options: 'i' } },
+    ];
+  }
+
+  const skip  = (page - 1) * limit;
+  const total = await User.countDocuments(filter);
+
+  const providers = await User.find(filter)
+    .select('name email profileImage role')
+    .sort({ name: 1 })
+    .skip(skip)
+    .limit(limit);
+
+  return {
+    providers,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      hasMore:    page * limit < total,
+    },
+  };
+};
+
+// ─── PROVIDER Dashboard — Browse all active Clients ──────────────────────────
+const getAllClients = async (
+  search?: string,
+  page:    number = 1,
+  limit:   number = 20,
+) => {
+  const filter: any = {
+    role:     USER_ROLES.CLIENT,
+    status:   STATUS.ACTIVE,
+    verified: true,
+  };
+
+  if (search?.trim()) {
+    filter.$or = [
+      { name:  { $regex: search.trim(), $options: 'i' } },
+      { email: { $regex: search.trim(), $options: 'i' } },
+    ];
+  }
+
+  const skip  = (page - 1) * limit;
+  const total = await User.countDocuments(filter);
+
+  const clients = await User.find(filter)
+    .select('name email profileImage role')
+    .sort({ name: 1 })
+    .skip(skip)
+    .limit(limit);
+
+  return {
+    clients,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      hasMore:    page * limit < total,
+    },
+  };
+};
+
+const getAllUsers = async (
+  search?: string,
+  role?:   string,
+  page:    number = 1,
+  limit:   number = 20,
+) => {
+  const filter: any = {
+    role: { $in: [USER_ROLES.CLIENT, USER_ROLES.PROVIDER] },
+  };
+
+  // Optional role filter: ?role=CLIENT or ?role=PROVIDER
+  if (role && [USER_ROLES.CLIENT, USER_ROLES.PROVIDER].includes(role as USER_ROLES)) {
+    filter.role = role;
+  }
+
+  if (search?.trim()) {
+    filter.$or = [
+      { name:  { $regex: search.trim(), $options: 'i' } },
+      { email: { $regex: search.trim(), $options: 'i' } },
+    ];
+  }
+
+  const skip  = (page - 1) * limit;
+  const total = await User.countDocuments(filter);
+
+  const users = await User.find(filter)
+    .select('name email profileImage role status verified createdAt')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit);
+
+  return {
+    users,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      hasMore:    page * limit < total,
+    },
+  };
+};
+
+
 
 export const UserService = {
 getMyProfile,
 updateMyProfile,
-getAllUsers,
 getUserById,
 updateUserStatus,
 blockUnblockUser,
 deleteUser,
+getAllProviders,
+getAllClients,
+getAllUsers
 }

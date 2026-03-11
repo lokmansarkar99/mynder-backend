@@ -1,37 +1,33 @@
-import express         from 'express';
-import { checkAuth }   from '../../middlewares/checkAuth';
-import validateRequest from '../../middlewares/validateRequest';
-import { USER_ROLES }  from '../../../enums/user';
+import express           from 'express';
+import { checkAuth }     from '../../middlewares/checkAuth';
+import { USER_ROLES }    from '../../../enums/user';
 import { ConversationController } from './conversation.controller';
-import { ConversationValidation } from './conversation.validation';
 
 const router = express.Router();
 
-// Auth allowed for all 3 roles — CLIENT, PROVIDER, ADMIN can all chat
-const auth = checkAuth(USER_ROLES.CLIENT, USER_ROLES.PROVIDER, USER_ROLES.ADMIN);
-
-// ── POST /api/v1/conversation/start ──────────────────────────────────────────
-// Start a new conversation OR return existing one (idempotent)
-router.post(
-  '/start',
-  auth,
-  validateRequest(ConversationValidation.startConversationSchema),
-  ConversationController.startConversation,
+// ── IMPORTANT: specific routes BEFORE param routes ───────────────────────────
+// /all before /:id — otherwise "all" is treated as an :id param
+router.get(
+  '/all',
+  checkAuth(USER_ROLES.ADMIN),
+  ConversationController.getAllConversations,
 );
 
-// ── GET /api/v1/conversation/my ───────────────────────────────────────────────
-// ⚠️ MUST be before /:id — otherwise "my" would match as :id param
 router.get(
   '/my',
-  auth,
+  checkAuth(USER_ROLES.CLIENT, USER_ROLES.PROVIDER, USER_ROLES.ADMIN),
   ConversationController.getMyConversations,
 );
 
-// ── GET /api/v1/conversation/:id ──────────────────────────────────────────────
+router.post(
+  '/start',
+  checkAuth(USER_ROLES.CLIENT, USER_ROLES.PROVIDER, USER_ROLES.ADMIN),
+  ConversationController.startConversation,
+);
+
 router.get(
   '/:id',
-  auth,
-  validateRequest(ConversationValidation.getConversationParamsSchema),
+  checkAuth(USER_ROLES.CLIENT, USER_ROLES.PROVIDER, USER_ROLES.ADMIN),
   ConversationController.getSingleConversation,
 );
 

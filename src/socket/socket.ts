@@ -39,7 +39,6 @@ export const initSocket = (httpServer: http.Server): void => {
   //   1. socket.handshake.auth.token         ← Recommended (frontend)
   //   2. socket.handshake.headers.authorization ← "Bearer xxx"
   //   3. socket.handshake.query.token         ← Postman / testing
-  // ══════════════════════════════════════════════════════════════════════════
   io.use((socket: Socket, next) => {
     try {
       const rawToken =

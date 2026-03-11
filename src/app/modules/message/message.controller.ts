@@ -49,6 +49,18 @@ const sendMessage = catchAsync(async (req: Request, res: Response) => {
     }
   }
 
+  // After saving message — push updated conversation to both participants' rooms
+const updatedConv = await Conversation.findById(conversationId)
+  .populate('participants', 'name email profileImage role')
+  .populate('lastMessage',  'content messageType createdAt sender attachments')
+  .lean();
+
+if (updatedConv) {
+  (updatedConv.participants as any[]).forEach((p: any) => {
+    io.to(p._id.toString()).emit('conversation:updated', updatedConv);
+  });
+}
+
   sendResponse(res, {
     statusCode: StatusCodes.CREATED,
     success:    true,

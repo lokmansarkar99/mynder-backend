@@ -63,4 +63,31 @@ validateRequest(UserValidation.blockUnblockUserSchema),
 UserController.blockUnblockUser
 );
 
+
+
+
+
+// CLIENT: browse all providers to start a new chat
+router.get(
+  '/providers',
+  checkAuth(USER_ROLES.CLIENT, USER_ROLES.ADMIN),
+  UserController.getAllProviders,
+);
+
+// PROVIDER: browse all clients
+router.get(
+  '/clients',
+  checkAuth(USER_ROLES.PROVIDER, USER_ROLES.ADMIN),
+  UserController.getAllClients,
+);
+
+// ADMIN: all users with optional role filter
+router.get(
+  '/all',
+  checkAuth(USER_ROLES.ADMIN),
+  UserController.getAllUsers,
+);
+
+
+
 export const UserRoutes = router;
