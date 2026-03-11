@@ -17,4 +17,5 @@ export enum REFERENCE_MODEL {
   MESSAGE        = 'Message',
   INVOICE        = 'Invoice',
   PROVIDER_PAYOUT = 'ProviderPayout',
+   PROVIDER_PROFILE = 'ProviderProfile',
 }

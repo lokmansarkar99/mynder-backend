@@ -8,16 +8,24 @@ import { getSocketId }       from '../../../socket/onlineUsers';
 import { Conversation }      from '../conversation/conversation.model';
 import ApiError              from '../../../errors/ApiErrors';
 
+// ─── Helper: safely extract userId string from req.user ───────────────────────
+// Handles both login token { id } and refresh token { _id } cases
+const getUserId = (req: Request): string => {
+  const id = (req.user!.id || (req.user as any)._id)?.toString();
+  if (!id) throw new ApiError(StatusCodes.UNAUTHORIZED, 'Invalid session. Please login again.');
+  return id;
+};
+
 // ─── POST /api/v1/message ─────────────────────────────────────────────────────
 const sendMessage = catchAsync(async (req: Request, res: Response) => {
-  const senderId                                       = req.user!.id;
+  const senderId = getUserId(req);
   const { conversationId, content, messageType = 'text', tempId } = req.body;
 
   if (!content?.trim()) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Message content cannot be empty');
   }
 
-  // ── 1. Save to DB 
+  // ── 1. Save to DB ────────────────────────────────────────────────────────
   const message = await MessageService.sendMessage(
     conversationId,
     senderId,
@@ -27,16 +35,22 @@ const sendMessage = catchAsync(async (req: Request, res: Response) => {
 
   const msgPayload = { ...message.toObject(), tempId: tempId || null };
 
-  // ── 2. Socket: emit message:new to everyone in room ──────────────────────
   const io = getIO();
+
+  // ── 2. Fetch updated conversation ONCE (used for both delivery + inbox) ──
+  const updatedConv = await Conversation.findById(conversationId)
+    .populate('participants', 'name email profileImage role')
+    .populate('lastMessage',  'content messageType createdAt sender attachments')
+    .lean();
+
+  // ── 3. Emit message:new to conversation room ─────────────────────────────
   io.to(conversationId).emit('message:new', msgPayload);
 
-  // ── 3. Delivery tick ─────────────────────────────────────────────────────
-  if (tempId) {
-    const conv = await Conversation.findById(conversationId).lean();
-    const receiverId = conv?.participants
-      .find(p => p.toString() !== senderId)
-      ?.toString();
+  // ── 4. Delivery tick ─────────────────────────────────────────────────────
+  if (tempId && updatedConv) {
+    const receiverId = (updatedConv.participants as any[])
+      .find((p: any) => p._id.toString() !== senderId)
+      ?._id?.toString();
 
     const senderSocketId   = getSocketId(senderId);
     const receiverSocketId = receiverId ? getSocketId(receiverId) : null;
@@ -49,17 +63,14 @@ const sendMessage = catchAsync(async (req: Request, res: Response) => {
     }
   }
 
-  // After saving message — push updated conversation to both participants' rooms
-const updatedConv = await Conversation.findById(conversationId)
-  .populate('participants', 'name email profileImage role')
-  .populate('lastMessage',  'content messageType createdAt sender attachments')
-  .lean();
-
-if (updatedConv) {
-  (updatedConv.participants as any[]).forEach((p: any) => {
-    io.to(p._id.toString()).emit('conversation:updated', updatedConv);
-  });
-}
+  // ── 5. conversation:updated → both participants re-sort their inbox ───────
+  // Each user is in their personal userId room (joined on socket connect)
+  // Frontend listens to this event and moves conversation to top of list
+  if (updatedConv) {
+    (updatedConv.participants as any[]).forEach((p: any) => {
+      io.to(p._id.toString()).emit('conversation:updated', updatedConv);
+    });
+  }
 
   sendResponse(res, {
     statusCode: StatusCodes.CREATED,
@@ -73,7 +84,7 @@ if (updatedConv) {
 const getMessages = catchAsync(async (req: Request, res: Response) => {
   const result = await MessageService.getMessages(
     req.params.conversationId as string,
-    req.user!.id,                             
+    getUserId(req),
     Number(req.query.page)  || 1,
     Number(req.query.limit) || 30,
   );
@@ -88,10 +99,35 @@ const getMessages = catchAsync(async (req: Request, res: Response) => {
 
 // ─── PATCH /api/v1/message/read-all/:conversationId ──────────────────────────
 const markAllAsRead = catchAsync(async (req: Request, res: Response) => {
+  const myId          = getUserId(req);
   const modifiedCount = await MessageService.markAllAsRead(
-    req.params.conversationId as string,
-    req.user!.id,                               
+    req.params.conversationId  as string,
+    myId,
   );
+
+  // ── Emit read-receipt to the other participant ───────────────────────────
+  // So their sent messages show blue ticks instantly
+  if (modifiedCount > 0) {
+    const io   = getIO();
+    const conv = await Conversation.findById(req.params.conversationId).lean();
+
+    if (conv) {
+      const senderId = conv.participants
+        .find(p => p.toString() !== myId)
+        ?.toString();
+
+      if (senderId) {
+        const senderSocketId = getSocketId(senderId);
+        if (senderSocketId) {
+          io.to(senderSocketId).emit('message:read-receipt', {
+            conversationId: req.params.conversationId,
+            readBy:         myId,
+            readAt:         new Date(),
+          });
+        }
+      }
+    }
+  }
 
   sendResponse(res, {
     statusCode: StatusCodes.OK,
@@ -105,7 +141,7 @@ const markAllAsRead = catchAsync(async (req: Request, res: Response) => {
 const togglePin = catchAsync(async (req: Request, res: Response) => {
   const result = await MessageService.togglePin(
     req.params.id as string,
-    req.user!.id,                               
+    getUserId(req),
   );
 
   sendResponse(res, {
@@ -120,7 +156,7 @@ const togglePin = catchAsync(async (req: Request, res: Response) => {
 const deleteMessage = catchAsync(async (req: Request, res: Response) => {
   const result = await MessageService.deleteMessage(
     req.params.id as string,
-    req.user!.id,                              
+    getUserId(req),
   );
 
   sendResponse(res, {
@@ -134,8 +170,8 @@ const deleteMessage = catchAsync(async (req: Request, res: Response) => {
 // ─── GET /api/v1/message/:conversationId/pinned ──────────────────────────────
 const getPinnedMessages = catchAsync(async (req: Request, res: Response) => {
   const result = await MessageService.getPinnedMessages(
-    req.params.conversationId as string,
-    req.user!.id,                               
+    req.params.conversationId  as string,
+    getUserId(req),
   );
 
   sendResponse(res, {

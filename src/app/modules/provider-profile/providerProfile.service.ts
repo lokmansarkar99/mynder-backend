@@ -12,6 +12,10 @@ import {
   TIntakeStepInput, TProfileUpdateInput, TAdminReviewInput,
 } from './providerProfile.validation';
 
+import { REFERENCE_MODEL, NOTIFICATION_TYPE } from '../../../enums/notification';
+
+import sendNotification from '../../../shared/sendNotification';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const normalizeFiles = (
@@ -380,7 +384,8 @@ const reviewApplication = async (
     );
   }
 
-  const isApprove  = payload.action === 'approve';
+  const isApprove = payload.action === 'approve';
+
   const updateData: Record<string, unknown> = {
     applicationStatus: isApprove ? APPLICATION_STATUS.APPROVED : APPLICATION_STATUS.REJECTED,
     reviewedBy:        new Types.ObjectId(adminId),
@@ -395,17 +400,39 @@ const reviewApplication = async (
   ).populate('user', 'email role');
 
   if (isApprove) {
+    // ── Activate user account ────────────────────────────────────────────────
     await User.findByIdAndUpdate(
       new Types.ObjectId(providerId),
       { $set: { isActive: true } },
     );
-    // TODO: Send approval email + in-app notification
+
+    // ── F-5: Notify provider — PROVIDER_APPROVED ─────────────────────────────
+    await sendNotification({
+      recipientId:    providerId,
+      type:           NOTIFICATION_TYPE.PROVIDER_APPROVED,
+      title:          'Profile Approved! 🎉',
+      body:           'Congratulations! Your provider profile has been approved. You can now set up your availability and start accepting bookings.',
+      referenceId:    profile._id,
+      referenceModel: REFERENCE_MODEL.PROVIDER_PAYOUT,   // closest ref — or add PROVIDER_PROFILE to enum
+    });
+
   } else {
-    // TODO: Send rejection email + in-app notification
+    // ── F-5: Notify provider — PROVIDER_REJECTED ─────────────────────────────
+    await sendNotification({
+      recipientId:    providerId,
+      type:           NOTIFICATION_TYPE.PROVIDER_REJECTED,
+      title:          'Profile Not Approved',
+      body:           payload.rejectionReason
+        ? `Your provider profile was not approved. Reason: ${payload.rejectionReason}`
+        : 'Your provider profile was not approved. Please contact support for more information.',
+      referenceId:    profile._id,
+      referenceModel: REFERENCE_MODEL.PROVIDER_PAYOUT,
+    });
   }
 
   return updatedProfile;
 };
+
 
 // ─── Internal — called from Review module ────────────────────────────────────
 

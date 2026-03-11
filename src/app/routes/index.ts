@@ -12,6 +12,7 @@ import { StripeRoutes } from "../modules/stripe/stripe.route";
 import { ProviderPayoutRoutes } from "../modules/provider-payout/providerPayout.route";
 import { ConversationRoutes } from "../modules/conversation/conversation.route";
 import { MessageRoutes } from "../modules/message/message.route";
+import { NotificationRoutes } from "../modules/notification/notification.route";
 
 const router = express.Router()
 
@@ -38,4 +39,7 @@ router.use("/payouts", ProviderPayoutRoutes)
 router.use("/conversation", ConversationRoutes)
 
 router.use("/message", MessageRoutes)
+
+router.use("/notification", NotificationRoutes)
+
 export default router;

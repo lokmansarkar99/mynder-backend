@@ -17,6 +17,9 @@ import { TCreateCheckoutSessionPayload, TCreateBookingRecordsParams } from '../.
 
 import config from '../../../config';
 
+import sendNotification from '../../../shared/sendNotification';
+import { NOTIFICATION_TYPE , REFERENCE_MODEL} from '../../../enums/notification';
+
 // ─── Private Helper — called by stripe webhook after payment ──────────────────
 // Exported so stripe.service.ts can call it from webhook handler
 export const createBookingFromWebhook = async (
@@ -33,9 +36,8 @@ export const createBookingFromWebhook = async (
     timezone,
   } = params;
 
-  // Double-check slot still free (race condition guard)
   const freshSlot = await Slot.findById(slot._id);
-  if (freshSlot?.isBooked) return; // already handled
+  if (freshSlot?.isBooked) return;
 
   const sessionTypeDoc = await SessionTypeModel.findById(slot.sessionType);
 
@@ -43,7 +45,7 @@ export const createBookingFromWebhook = async (
   const scheduledAt = new Date(slot.date);
   scheduledAt.setUTCHours(startHour, startMin, 0, 0);
 
-  // ── Create Appointment ─────
+  // ── Create Appointment ────────────────────────────────────────────────────
   const appointment = await Appointment.create({
     client:          clientObjectId,
     provider:        slot.provider,
@@ -58,20 +60,16 @@ export const createBookingFromWebhook = async (
     meetingLink:     slot.meetingLink     ?? '',
     meetingId:       slot.meetingId       ?? '',
     meetingPassword: slot.meetingPassword ?? '',
-    paymentIntentId: stripeSessionId,    
+    paymentIntentId: stripeSessionId,
     status:          APPOINTMENT_STATUS.UPCOMING,
   }) as IAppointmentDocument;
 
-  // ── Lock Slot 
+  // ── Lock Slot ─────────────────────────────────────────────────────────────
   await Slot.findByIdAndUpdate(slot._id, {
-    $set: {
-      isBooked:    true,
-      bookedBy:    clientObjectId,
-      appointment: appointment._id,
-    },
+    $set: { isBooked: true, bookedBy: clientObjectId, appointment: appointment._id },
   });
 
-  // ── Create Invoice ─────────
+  // ── Create Invoice ────────────────────────────────────────────────────────
   const invoice = await Invoice.create({
     client:      clientObjectId,
     provider:    slot.provider,
@@ -87,7 +85,7 @@ export const createBookingFromWebhook = async (
     stripePaymentIntentId: stripeSessionId,
   });
 
-  // ── Create ProviderPayout ──
+  // ── Create ProviderPayout ─────────────────────────────────────────────────
   await ProviderPayout.create({
     provider:           slot.provider,
     appointment:        appointment._id,
@@ -96,11 +94,34 @@ export const createBookingFromWebhook = async (
     status:             'pending',
   });
 
-  // ── Link Invoice → Appointment────
+  // ── Link Invoice → Appointment ────────────────────────────────────────────
   await Appointment.findByIdAndUpdate(appointment._id, {
     $set: { invoice: (invoice as any)._id },
   });
+
+  // ── F-1: Notify CLIENT + PROVIDER — BOOKING_CONFIRMED ────────────────────
+  // Promise.allSettled → if one notification fails, the other still fires
+  // and neither failure crashes the webhook handler
+  await Promise.allSettled([
+    sendNotification({
+      recipientId:    clientId,
+      type:           NOTIFICATION_TYPE.BOOKING_CONFIRMED,
+      title:          'Booking Confirmed! ',
+      body:           `Your ${slot.duration}-min session "${slot.sessionName}" on ${new Date(slot.date).toDateString()} at ${slot.startTime} is confirmed.`,
+      referenceId:    appointment._id,
+      referenceModel: REFERENCE_MODEL.APPOINTMENT,
+    }),
+    sendNotification({
+      recipientId:    slot.provider,
+      type:           NOTIFICATION_TYPE.BOOKING_CONFIRMED,
+      title:          'New Booking Received! ',
+      body:           `A client has booked your "${slot.sessionName}" session on ${new Date(slot.date).toDateString()} at ${slot.startTime}.`,
+      referenceId:    appointment._id,
+      referenceModel: REFERENCE_MODEL.APPOINTMENT,
+    }),
+  ]);
 };
+
 
 // ─── 1. Create Checkout Session─────
 // Returns Stripe hosted checkout URL → frontend redirects to it
@@ -252,20 +273,44 @@ const cancelAppointment = async (
     { returnDocument: 'after' },
   );
 
-  // Unlock Slot
+  // ── Unlock Slot 
   await Slot.findByIdAndUpdate(appointment.slot, {
     $set: { isBooked: false, bookedBy: null, appointment: null },
   });
 
-  // Auto-refund via Stripe
+  // ── Auto-refund via Stripe
   try {
     await StripeService.refundPayment(appointmentId, 'requested_by_customer');
   } catch (err) {
     console.error('[REFUND ERROR on cancel]', err);
   }
 
+  // ── F-2: Notify CLIENT + PROVIDER — BOOKING_CANCELLED 
+  // Who cancelled determines the message wording
+  const cancelledByLabel = isAdmin ? 'Admin' : isClient ? 'the client' : 'the provider';
+
+  await Promise.allSettled([
+    sendNotification({
+      recipientId:    appointment.client,
+      type:           NOTIFICATION_TYPE.BOOKING_CANCELLED,
+      title:          'Appointment Cancelled',
+      body:           `Your appointment scheduled for ${appointment.scheduledAt.toDateString()} has been cancelled by ${cancelledByLabel}.${payload.cancellationReason ? ` Reason: ${payload.cancellationReason}` : ''}`,
+      referenceId:    appointment._id,
+      referenceModel: REFERENCE_MODEL.APPOINTMENT,
+    }),
+    sendNotification({
+      recipientId:    appointment.provider,
+      type:           NOTIFICATION_TYPE.BOOKING_CANCELLED,
+      title:          'Appointment Cancelled',
+      body:           `An appointment scheduled for ${appointment.scheduledAt.toDateString()} has been cancelled by ${cancelledByLabel}.${payload.cancellationReason ? ` Reason: ${payload.cancellationReason}` : ''}`,
+      referenceId:    appointment._id,
+      referenceModel: REFERENCE_MODEL.APPOINTMENT,
+    }),
+  ]);
+
   return updated;
 };
+
 
 // ─── 5. Get All Appointments (Admin)
 const getAllAppointments = async (query: Record<string, unknown>) => {
