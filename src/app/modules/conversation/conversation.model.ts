@@ -1,5 +1,6 @@
 import { Schema, model } from 'mongoose';
 import { IConversationDocument, IConversationModel } from './conversation.interface';
+import { Message } from '../message/message.model';
 
 const conversationSchema = new Schema<IConversationDocument>(
   {

@@ -25,7 +25,7 @@ const createNewAccessTokenWithRefeshToken = async (refreshToken:string) => {
   }
 
   const newAccessToken = createToken({
-    _id: isUserExist._id,
+    id: isUserExist._id,
     email: isUserExist.email,
     name: isUserExist.name,
     role: isUserExist.role

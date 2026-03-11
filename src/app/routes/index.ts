@@ -10,6 +10,8 @@ import { SlotRoutes } from "../modules/slot/slot.route";
 import { AppointmentRoutes } from "../modules/appointment/appointment.route";
 import { StripeRoutes } from "../modules/stripe/stripe.route";
 import { ProviderPayoutRoutes } from "../modules/provider-payout/providerPayout.route";
+import { ConversationRoutes } from "../modules/conversation/conversation.route";
+import { MessageRoutes } from "../modules/message/message.route";
 
 const router = express.Router()
 
@@ -32,4 +34,8 @@ router.use("/appointments", AppointmentRoutes)
 router.use("/stripe", StripeRoutes)
 
 router.use("/payouts", ProviderPayoutRoutes)
+
+router.use("/conversation", ConversationRoutes)
+
+router.use("/message", MessageRoutes)
 export default router;

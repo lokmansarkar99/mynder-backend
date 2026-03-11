@@ -19,7 +19,7 @@ const getAllPayouts = catchAsync(async (req: Request, res: Response) => {
 
 const getMyPayouts = catchAsync(async (req: Request, res: Response) => {
   const result = await ProviderPayoutService.getMyPayouts(
-    req.user.id,
+    req.user!.id,
     req.query as Record<string, unknown>,
   );
   sendResponse(res, {
@@ -32,10 +32,11 @@ const getMyPayouts = catchAsync(async (req: Request, res: Response) => {
 });
 
 const getPayoutById = catchAsync(async (req: Request, res: Response) => {
+
   const result = await ProviderPayoutService.getPayoutById(
     req.params.id as string,
-    req.user.id,
-    req.user.role,
+    req.user!.id,
+    req.user!.role,
   );
   sendResponse(res, {
     statusCode: StatusCodes.OK,

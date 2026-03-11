@@ -5,7 +5,7 @@ import { JwtPayload } from 'jsonwebtoken';   // ← ADD THIS — was missing
 import { USER_ROLES } from '../enums/user';
 
 type AuthJwtPayload = JwtPayload & {
-  _id:   string;
+  id:   string;
   email: string;
   name:  string;
   role:  USER_ROLES;
@@ -21,7 +21,7 @@ declare module 'socket.io' {
   interface Socket {
     userId:    string;
     userName:  string;
-    userEmail: string; 
+    userEmail: string;  
     userRole:  string;
   }
 }

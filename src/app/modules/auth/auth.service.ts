@@ -68,7 +68,7 @@ html: emailData.html,
 return {
 message: "User registered successfully. Please verify your email.",
 user: {
-_id: user._id,
+id: user._id,
 email: user.email,
 role: user.role,
 },
@@ -133,7 +133,7 @@ return {
 accessToken,
 refreshToken,
 user: {
-_id: user._id,
+id: user._id,
 email: user.email,
 role: user.role,
 intakeCompleted: user.intakeCompleted,
@@ -239,7 +239,7 @@ $unset: {
 return {
 message: "OTP verified successfully",
 user: {
-_id: user._id,
+id: user._id,
 email: user.email,
 role: user.role,
 intakeCompleted: user.intakeCompleted,
