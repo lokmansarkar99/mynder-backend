@@ -24,7 +24,7 @@ const blogSchema = new Schema<IBlogDocument>(
     status: {
       type:    String,
       enum:    ['draft', 'published', 'scheduled'],
-      default: 'draft',
+      default: 'published',
     },
 
     publishedAt: { type: Date, default: null },

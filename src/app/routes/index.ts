@@ -15,6 +15,7 @@ import { MessageRoutes } from "../modules/message/message.route";
 import { NotificationRoutes } from "../modules/notification/notification.route";
 import { FAQRoutes } from "../modules/faq/faq.route";
 import { ReviewRoutes } from "../modules/review/review.route";
+import { BlogRoutes } from "../modules/blog/blog.route";
 
 const router = express.Router()
 
@@ -47,5 +48,7 @@ router.use("/notification", NotificationRoutes)
 router.use("/faq", FAQRoutes)
 
 router.use("/review", ReviewRoutes)
+
+router.use("/blog", BlogRoutes)
 
 export default router;
