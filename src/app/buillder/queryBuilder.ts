@@ -1,7 +1,6 @@
 import { Query } from 'mongoose';
 
-// FilterQuery is not a stable named export in all Mongoose versions
-// Use 'as any' for .find() filter arguments — fully safe pattern
+
 
 const EXCLUDE_FIELDS = [
   'searchTerm',

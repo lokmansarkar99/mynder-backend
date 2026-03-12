@@ -13,6 +13,7 @@ import { ProviderPayoutRoutes } from "../modules/provider-payout/providerPayout.
 import { ConversationRoutes } from "../modules/conversation/conversation.route";
 import { MessageRoutes } from "../modules/message/message.route";
 import { NotificationRoutes } from "../modules/notification/notification.route";
+import { FAQRoutes } from "../modules/faq/faq.route";
 
 const router = express.Router()
 
@@ -41,5 +42,7 @@ router.use("/conversation", ConversationRoutes)
 router.use("/message", MessageRoutes)
 
 router.use("/notification", NotificationRoutes)
+
+router.use("/faq", FAQRoutes)
 
 export default router;
