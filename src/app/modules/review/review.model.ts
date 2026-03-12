@@ -5,7 +5,7 @@ type IReview = {
   client:      Types.ObjectId;
   provider:    Types.ObjectId;
   appointment: Types.ObjectId;
-  rating:      number;    // 1-5
+  rating:      number;  
   comment:     string;
   isPublished: boolean;
 };
