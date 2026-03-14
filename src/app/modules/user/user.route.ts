@@ -89,5 +89,8 @@ router.get(
 );
 
 
+// Admin Statistics
+router.get("/stats", checkAuth(USER_ROLES.ADMIN), UserController.adminStats)
+
 
 export const UserRoutes = router;

@@ -4,6 +4,7 @@ import { UserService } from "./user.service";
 import sendResponse from "../../../shared/sendResponse";
 import { StatusCodes } from "http-status-codes";
 
+import { DashboardService } from "./admin-stats.service";
 // ── Get My Profile ─────────────────────────────────
 const getMyProfile = catchAsync(async (req: Request, res: Response) => {
 const userId = req.user!.id
@@ -135,6 +136,20 @@ const getAllUsers = catchAsync(async (req: Request, res: Response) => {
 });
 
 
+
+const adminStats = catchAsync(async (req:Request, res:Response) => {
+
+      const result = await DashboardService.getAdminOverview()
+
+      sendResponse( res, {
+        statusCode: StatusCodes.OK,
+        success: true,
+        message: "User Stats",
+        data: result
+      })
+
+})
+
 export const UserController = {
 getMyProfile,
 updateMyProfile,
@@ -144,5 +159,6 @@ blockUnblockUser,
 deleteUser,
 getAllUsers,
 getAllClients,
-getAllProviders
+getAllProviders,
+adminStats
 }
