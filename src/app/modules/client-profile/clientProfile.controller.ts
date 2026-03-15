@@ -56,6 +56,7 @@ const getClientById = catchAsync(async (req: Request, res: Response) => {
   const result = await ClientProfileService.getClientById(
     req.params.id as string,
     req.user.role,
+    req.user!.id
   );
 
   sendResponse(res, {

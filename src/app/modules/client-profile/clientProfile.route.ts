@@ -55,7 +55,7 @@ router
 router
   .route('/all')
   .get(
-    checkAuth(USER_ROLES.ADMIN),
+    checkAuth(USER_ROLES.PROVIDER,  USER_ROLES.ADMIN),
     ClientProfileController.getAllClients,
   );
 

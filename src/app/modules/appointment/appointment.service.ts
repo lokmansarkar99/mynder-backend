@@ -201,11 +201,11 @@ const getMyAppointments = async (
   if (query.status) filter.status = query.status;
 
   const appointmentQuery = new QueryBuilder(
-    Appointment.find(filter)
+    Appointment.find(filter, {status: 1, meetingLink: 1, meetingId: 1, meetingPassword: 1,sessionType: 1, scheduledAt: 1, cancelledBy: 1, cancellationReason: 1})
       .populate('client',   'email name')
       .populate('provider', 'email name')
       .populate('slot',     'startTime endTime date')
-      .populate('invoice'),
+      .populate('invoice', 'paymentStatus'),
     query,
   )
     .sort()

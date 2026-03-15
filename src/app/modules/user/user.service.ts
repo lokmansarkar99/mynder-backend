@@ -213,6 +213,7 @@ const getAllUsers = async (
 
   const users = await User.find(filter)
     .select('name email profileImage role status verified createdAt')
+    .populate('providerProfile', 'licenseNumber createdAt')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit);

@@ -1,33 +1,47 @@
-import { Types } from 'mongoose';
-import { StatusCodes } from 'http-status-codes';
-import ApiError from '../../../errors/ApiErrors';
-import { ProviderProfile } from './providerProfile.model';
-import { User } from '../user/user.model';
-import { QueryBuilder } from '../../buillder/queryBuilder';
-import { APPLICATION_STATUS } from '../../../enums/payment';
-import unlinkFile from '../../../shared/unLinkFIle';
-import { getSingleFilePath } from '../../../shared/getFilePath';
+import { Types } from "mongoose";
+import { StatusCodes } from "http-status-codes";
+import ApiError from "../../../errors/ApiErrors";
+import { ProviderProfile } from "./providerProfile.model";
+import { User } from "../user/user.model";
+import { QueryBuilder } from "../../buillder/queryBuilder";
+import { APPLICATION_STATUS } from "../../../enums/payment";
+import unlinkFile from "../../../shared/unLinkFIle";
+import { getSingleFilePath } from "../../../shared/getFilePath";
 import {
-  TStep1Input, TStep2Input, TStep3Input,
-  TIntakeStepInput, TProfileUpdateInput, TAdminReviewInput,
-} from './providerProfile.validation';
+  TStep1Input,
+  TStep2Input,
+  TStep3Input,
+  TIntakeStepInput,
+  TProfileUpdateInput,
+  TAdminReviewInput,
+} from "./providerProfile.validation";
 
-import { REFERENCE_MODEL, NOTIFICATION_TYPE } from '../../../enums/notification';
+import {
+  REFERENCE_MODEL,
+  NOTIFICATION_TYPE,
+} from "../../../enums/notification";
 
-import sendNotification from '../../../shared/sendNotification';
+import sendNotification from "../../../shared/sendNotification";
 
+import { Slot } from "../slot/slot.model";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const normalizeFiles = (
-  files: Express.Multer.File[] | Record<string, Express.Multer.File[]> | undefined,
+  files:
+    | Express.Multer.File[]
+    | Record<string, Express.Multer.File[]>
+    | undefined,
 ): Record<string, Express.Multer.File[]> => {
   if (!files) return {};
   if (Array.isArray(files)) {
-    return files.reduce((acc, file) => {
-      if (!acc[file.fieldname]) acc[file.fieldname] = [];
-      acc[file.fieldname].push(file);
-      return acc;
-    }, {} as Record<string, Express.Multer.File[]>);
+    return files.reduce(
+      (acc, file) => {
+        if (!acc[file.fieldname]) acc[file.fieldname] = [];
+        acc[file.fieldname].push(file);
+        return acc;
+      },
+      {} as Record<string, Express.Multer.File[]>,
+    );
   }
   return files;
 };
@@ -36,8 +50,12 @@ const normalizeFiles = (
 // Handles both: already-parsed array OR raw JSON string
 const parseJsonArray = <T>(value: unknown): T[] => {
   if (Array.isArray(value)) return value as T[];
-  if (typeof value === 'string') {
-    try { return JSON.parse(value) as T[]; } catch { return []; }
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as T[];
+    } catch {
+      return [];
+    }
   }
   return [];
 };
@@ -45,52 +63,51 @@ const parseJsonArray = <T>(value: unknown): T[] => {
 // ─── Step Data Builder ────────────────────────────────────────────────────────
 
 const buildStepUpdateData = (
-  step:    number,
+  step: number,
   payload: TIntakeStepInput,
-  files:   Record<string, Express.Multer.File[]>,
+  files: Record<string, Express.Multer.File[]>,
 ): Record<string, unknown> => {
   switch (step) {
-
     case 1: {
-      const data   = payload as TStep1Input;
+      const data = payload as TStep1Input;
       const update: Record<string, unknown> = {
-        fullName:       data.fullName,
-        phone:          data.phone,
-        dateOfBirth:    data.dateOfBirth,
+        fullName: data.fullName,
+        phone: data.phone,
+        dateOfBirth: data.dateOfBirth,
         genderIdentity: data.genderIdentity,
-        licenseNumber:  data.licenseNumber,
-        licenseState:   data.licenseState,
-        providerType:   data.providerType,
-        officeAddress:  data.officeAddress ?? '',
-        city:           data.city          ?? '',
+        licenseNumber: data.licenseNumber,
+        licenseState: data.licenseState,
+        providerType: data.providerType,
+        officeAddress: data.officeAddress ?? "",
+        city: data.city ?? "",
       };
-      const profileImgPath = getSingleFilePath(files, 'profileImage');
-      const proPhotoPath   = getSingleFilePath(files, 'professionalPhoto');
-      const proVideoPath   = getSingleFilePath(files, 'professionalVideo');
-      if (profileImgPath) update.profilePhoto      = profileImgPath;
-      if (proPhotoPath)   update.professionalPhoto = proPhotoPath;
-      if (proVideoPath)   update.professionalVideo = proVideoPath;
+      const profileImgPath = getSingleFilePath(files, "profileImage");
+      const proPhotoPath = getSingleFilePath(files, "professionalPhoto");
+      const proVideoPath = getSingleFilePath(files, "professionalVideo");
+      if (profileImgPath) update.profilePhoto = profileImgPath;
+      if (proPhotoPath) update.professionalPhoto = proPhotoPath;
+      if (proVideoPath) update.professionalVideo = proVideoPath;
       return update;
     }
 
     case 2: {
-      const data   = payload as TStep2Input;
+      const data = payload as TStep2Input;
       const update: Record<string, unknown> = {};
 
       // profileImage parseJsonArray — handles string or array from form-data
-      const education  = parseJsonArray<{
+      const education = parseJsonArray<{
         degreeName: string;
         university: string;
-        graduationYear: number ;
+        graduationYear: number;
       }>(data.education);
 
       const employment = parseJsonArray<{
-        employerName:     string;
-        jobTitle:         string;
-        startDate:        string;
-        endDate:          string | null;
+        employerName: string;
+        jobTitle: string;
+        startDate: string;
+        endDate: string | null;
         responsibilities: string;
-        isCurrent:        boolean;
+        isCurrent: boolean;
       }>(data.employment);
 
       if (education.length) {
@@ -104,16 +121,16 @@ const buildStepUpdateData = (
       }
       if (employment.length) {
         // profileImage Convert date strings → Date objects
-        update.employment = employment.map(e => ({
+        update.employment = employment.map((e) => ({
           ...e,
           startDate: new Date(e.startDate),
-          endDate:   e.endDate ? new Date(e.endDate) : null,
+          endDate: e.endDate ? new Date(e.endDate) : null,
         }));
       }
 
-      const cvPath      = getSingleFilePath(files, 'cvDocument');
-      const licensePath = getSingleFilePath(files, 'licenseDocument');
-      if (cvPath)      update.cvDocument      = cvPath;
+      const cvPath = getSingleFilePath(files, "cvDocument");
+      const licensePath = getSingleFilePath(files, "licenseDocument");
+      if (cvPath) update.cvDocument = cvPath;
       if (licensePath) update.licenseDocument = licensePath;
       return update;
     }
@@ -122,19 +139,30 @@ const buildStepUpdateData = (
       const data = payload as TStep3Input;
 
       // profileImage parseJsonArray for ALL array fields — same issue as employment
-      const therapeuticApproaches = parseJsonArray<string>(data.therapeuticApproaches);
-      const clientPopulations     = parseJsonArray<string>(data.clientPopulations);
-      const sessionFormats        = parseJsonArray<string>(data.sessionFormats);
-      const sessionLengths        = parseJsonArray<number>(data.sessionLengths);
+      const therapeuticApproaches = parseJsonArray<string>(
+        data.therapeuticApproaches,
+      );
+      const clientPopulations = parseJsonArray<string>(data.clientPopulations);
+      const sessionFormats = parseJsonArray<string>(data.sessionFormats);
+      const sessionLengths = parseJsonArray<number>(data.sessionLengths);
 
       if (!therapeuticApproaches.length) {
-        throw new ApiError(StatusCodes.BAD_REQUEST, 'Select at least one therapeutic approach');
+        throw new ApiError(
+          StatusCodes.BAD_REQUEST,
+          "Select at least one therapeutic approach",
+        );
       }
       if (!clientPopulations.length) {
-        throw new ApiError(StatusCodes.BAD_REQUEST, 'Select at least one client population');
+        throw new ApiError(
+          StatusCodes.BAD_REQUEST,
+          "Select at least one client population",
+        );
       }
       if (!sessionFormats.length) {
-        throw new ApiError(StatusCodes.BAD_REQUEST, 'Select at least one session format');
+        throw new ApiError(
+          StatusCodes.BAD_REQUEST,
+          "Select at least one session format",
+        );
       }
 
       return {
@@ -142,44 +170,62 @@ const buildStepUpdateData = (
         clientPopulations,
         sessionFormats,
         sessionLengths,
-        applicationStatus:      APPLICATION_STATUS.PENDING,
+        applicationStatus: APPLICATION_STATUS.PENDING,
         applicationSubmittedAt: new Date(),
       };
     }
 
     default:
-      throw new ApiError(StatusCodes.BAD_REQUEST, 'Invalid step. Must be 1–3');
+      throw new ApiError(StatusCodes.BAD_REQUEST, "Invalid step. Must be 1–3");
   }
 };
 
 // ─── Service Functions ────────────────────────────────────────────────────────
 
 const saveIntakeStep = async (
-  userId:   string,
-  step:     number,
-  payload:  TIntakeStepInput,
-  rawFiles: Express.Multer.File[] | Record<string, Express.Multer.File[]> | undefined,
+  userId: string,
+  step: number,
+  payload: TIntakeStepInput,
+  rawFiles:
+    | Express.Multer.File[]
+    | Record<string, Express.Multer.File[]>
+    | undefined,
 ) => {
   const userObjectId = new Types.ObjectId(userId);
-  const files        = normalizeFiles(rawFiles);
+  const files = normalizeFiles(rawFiles);
 
   // Fetch existing doc only for steps with file uploads (1 & 2)
-  const existing = (step === 1 || step === 2)
-    ? await ProviderProfile.findOne({ user: userObjectId })
-    : null;
+  const existing =
+    step === 1 || step === 2
+      ? await ProviderProfile.findOne({ user: userObjectId })
+      : null;
 
   // ── Delete old files before saving new ones ───────────────────────────────
   if (step === 1) {
-    if (getSingleFilePath(files, 'profileImage')      && existing?.profilePhoto)      unlinkFile(existing.profilePhoto);
-    if (getSingleFilePath(files, 'professionalPhoto') && existing?.professionalPhoto) unlinkFile(existing.professionalPhoto);
-    if (getSingleFilePath(files, 'professionalVideo') && existing?.professionalVideo) unlinkFile(existing.professionalVideo);
+    if (getSingleFilePath(files, "profileImage") && existing?.profilePhoto)
+      unlinkFile(existing.profilePhoto);
+    if (
+      getSingleFilePath(files, "professionalPhoto") &&
+      existing?.professionalPhoto
+    )
+      unlinkFile(existing.professionalPhoto);
+    if (
+      getSingleFilePath(files, "professionalVideo") &&
+      existing?.professionalVideo
+    )
+      unlinkFile(existing.professionalVideo);
   }
   if (step === 2) {
-    if (getSingleFilePath(files, 'cvDocument')      && existing?.cvDocument)      unlinkFile(existing.cvDocument);
-    if (getSingleFilePath(files, 'licenseDocument') && existing?.licenseDocument) unlinkFile(existing.licenseDocument);
+    if (getSingleFilePath(files, "cvDocument") && existing?.cvDocument)
+      unlinkFile(existing.cvDocument);
+    if (
+      getSingleFilePath(files, "licenseDocument") &&
+      existing?.licenseDocument
+    )
+      unlinkFile(existing.licenseDocument);
   }
 
-  const rawData   = buildStepUpdateData(step, payload, files);
+  const rawData = buildStepUpdateData(step, payload, files);
   const cleanData = Object.fromEntries(
     Object.entries(rawData).filter(([, v]) => v !== undefined),
   );
@@ -187,37 +233,40 @@ const saveIntakeStep = async (
   return await ProviderProfile.findOneAndUpdate(
     { user: userObjectId },
     {
-      $set:         cleanData,
-      $max:         { intakeStep: step },
+      $set: cleanData,
+      $max: { intakeStep: step },
       $setOnInsert: { user: userObjectId },
     },
     {
-      returnDocument:      'after',
-      upsert:              true,
-      runValidators:       true,
+      returnDocument: "after",
+      upsert: true,
+      runValidators: true,
       setDefaultsOnInsert: true,
     },
   );
 };
 
 const getMyProfile = async (userId: string) => {
-  const profile = await ProviderProfile
-    .findOne({ user: new Types.ObjectId(userId) })
-    .populate('user', 'email role isEmailVerified lastLogin createdAt');
+  const profile = await ProviderProfile.findOne({
+    user: new Types.ObjectId(userId),
+  }).populate("user", "email role isEmailVerified lastLogin createdAt");
 
   if (!profile) {
     throw new ApiError(
       StatusCodes.NOT_FOUND,
-      'Provider profile not found. Please complete your intake form.',
+      "Provider profile not found. Please complete your intake form.",
     );
   }
   return profile;
 };
 
 const updateMyProfile = async (
-  userId:   string,
-  payload:  TProfileUpdateInput,
-  rawFiles: Express.Multer.File[] | Record<string, Express.Multer.File[]> | undefined,
+  userId: string,
+  payload: TProfileUpdateInput,
+  rawFiles:
+    | Express.Multer.File[]
+    | Record<string, Express.Multer.File[]>
+    | undefined,
 ) => {
   const userObjectId = new Types.ObjectId(userId);
 
@@ -225,11 +274,11 @@ const updateMyProfile = async (
   if (!existing) {
     throw new ApiError(
       StatusCodes.NOT_FOUND,
-      'Provider profile not found. Please complete your intake form first.',
+      "Provider profile not found. Please complete your intake form first.",
     );
   }
 
-  const files      = normalizeFiles(rawFiles);
+  const files = normalizeFiles(rawFiles);
   const updateData: Record<string, unknown> = {};
 
   // Only include defined payload fields
@@ -243,18 +292,23 @@ const updateMyProfile = async (
   }
   if (payload.employment) {
     const employment = parseJsonArray<{
-      employerName: string; jobTitle: string;
-      startDate: string; endDate: string | null;
-      responsibilities: string; isCurrent: boolean;
+      employerName: string;
+      jobTitle: string;
+      startDate: string;
+      endDate: string | null;
+      responsibilities: string;
+      isCurrent: boolean;
     }>(payload.employment);
-    updateData.employment = employment.map(e => ({
+    updateData.employment = employment.map((e) => ({
       ...e,
       startDate: new Date(e.startDate),
-      endDate:   e.endDate ? new Date(e.endDate) : null,
+      endDate: e.endDate ? new Date(e.endDate) : null,
     }));
   }
   if (payload.therapeuticApproaches) {
-    updateData.therapeuticApproaches = parseJsonArray(payload.therapeuticApproaches);
+    updateData.therapeuticApproaches = parseJsonArray(
+      payload.therapeuticApproaches,
+    );
   }
   if (payload.clientPopulations) {
     updateData.clientPopulations = parseJsonArray(payload.clientPopulations);
@@ -267,14 +321,14 @@ const updateMyProfile = async (
   }
 
   // ── File updates with old file deletion ───────────────────────────────────
-  const newProfileImg = getSingleFilePath(files, 'profileImage');
-  const newProPhoto   = getSingleFilePath(files, 'professionalPhoto');
-  const newProVideo   = getSingleFilePath(files, 'professionalVideo');
-  const newCv         = getSingleFilePath(files, 'cvDocument');
-  const newLicense    = getSingleFilePath(files, 'licenseDocument');
+  const newProfileImg = getSingleFilePath(files, "profileImage");
+  const newProPhoto = getSingleFilePath(files, "professionalPhoto");
+  const newProVideo = getSingleFilePath(files, "professionalVideo");
+  const newCv = getSingleFilePath(files, "cvDocument");
+  const newLicense = getSingleFilePath(files, "licenseDocument");
 
   if (newProfileImg) {
-    if (existing.profilePhoto)      unlinkFile(existing.profilePhoto);
+    if (existing.profilePhoto) unlinkFile(existing.profilePhoto);
     updateData.profilePhoto = newProfileImg;
   }
   if (newProPhoto) {
@@ -286,56 +340,113 @@ const updateMyProfile = async (
     updateData.professionalVideo = newProVideo;
   }
   if (newCv) {
-    if (existing.cvDocument)        unlinkFile(existing.cvDocument);
+    if (existing.cvDocument) unlinkFile(existing.cvDocument);
     updateData.cvDocument = newCv;
   }
   if (newLicense) {
-    if (existing.licenseDocument)   unlinkFile(existing.licenseDocument);
+    if (existing.licenseDocument) unlinkFile(existing.licenseDocument);
     updateData.licenseDocument = newLicense;
   }
 
   return await ProviderProfile.findOneAndUpdate(
     { user: userObjectId },
     { $set: updateData },
-    { returnDocument: 'after', runValidators: true },
-  ).populate('user', 'email role isEmailVerified lastLogin createdAt');
+    { returnDocument: "after", runValidators: true },
+  ).populate("user", "email role isEmailVerified lastLogin createdAt");
 };
 
 // ─── Public Endpoints ─────────────────────────────────────────────────────────
 
 const getPublicProviders = async (query: Record<string, unknown>) => {
+  // ── Tomorrow's date window for availability check ─────────────
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStart = new Date(tomorrow.setHours(0, 0, 0, 0));
+  const tomorrowEnd = new Date(tomorrow.setHours(23, 59, 59, 999));
+
+  // ── Only fields the provider card needs ───────────────────────
+  const CARD_FIELDS =
+    "_id user fullName providerType professionalPhoto " +
+    "therapeuticApproaches clientPopulations" +
+    "averageRating totalReviews isFeatured isTopProvider bio" + "sessionFees";
+
   const baseQuery = ProviderProfile.find({
     applicationStatus: APPLICATION_STATUS.APPROVED,
   })
-    .populate('user', 'email isActive')
-    .select('-cvDocument -licenseDocument -applicationSubmittedAt -reviewedBy -rejectionReason');
+    .select(CARD_FIELDS)
+    .populate("user", "_id"); // only need _id for availability check
 
   const providerQuery = new QueryBuilder(baseQuery, query)
-    .search(['fullName', 'city', 'providerType'])
+    .search(["fullName", "city", "providerType"])
     .filter()
     .sort()
     .paginate()
     .fields();
 
-  const [data, meta] = await Promise.all([
+  // ── Run query + count in parallel ────────────────────────────
+  const [providers, meta] = await Promise.all([
     providerQuery.modelQuery,
     providerQuery.countTotal(),
   ]);
+
+  // ── Collect provider User IDs → check tomorrow's slots ───────
+  const providerUserIds = providers.map((p: any) => p.user?._id ?? p.user);
+
+  // Single query — which providers have a free slot tomorrow?
+  const availableTomorrowIds = await Slot.find({
+    provider: { $in: providerUserIds },
+    date: { $gte: tomorrowStart, $lte: tomorrowEnd },
+    isBooked: false,
+    isExpired: false,
+  }).distinct("provider"); 
+
+  const availableSet = new Set(
+    availableTomorrowIds.map((id: any) => id.toString()),
+  );
+
+  // ── Shape each provider into the card payload ─────────────────
+  const data = providers.map((p: any) => {
+    const doc = p.toObject ? p.toObject() : p;
+    const userId = (doc.user?._id ?? doc.user)?.toString();
+
+  const fees: { duration: number; fee: number }[] = doc.sessionFees ?? [];
+
+const lowestFee = fees.length > 0
+  ? fees.reduce((min, f) => (f.fee < min ? f.fee : min), fees[0].fee)
+  : null;
+
+    return {
+      _id: doc._id, // for "View Profile" / "Book Now"
+      fullName: doc.fullName, // Dr. Sarah Jenkins
+      providerType: doc.providerType, // clinical_psychologist
+      professionalPhoto: doc.professionalPhoto,
+      therapeuticApproaches: doc.therapeuticApproaches, // ["CBT", "DBT"]
+      clientPopulations: doc.clientPopulations, // ["Anxiety", "Depression"]
+      sessionFee: fees, // 150  → "$150 / Session"
+      averageRating: doc.averageRating,
+      totalReviews: doc.totalReviews,
+      isFeatured: doc.isFeatured,
+      isTopProvider: doc.isTopProvider, // "Top" badge
+      bio: doc.bio ?? null,
+      isAvailableTomorrow: availableSet.has(userId ?? ""), // "Available tomorrow"
+    };
+  });
 
   return { data, meta };
 };
 
 const getPublicProviderById = async (providerId: string) => {
-  const profile = await ProviderProfile
-    .findOne({
-      user:              new Types.ObjectId(providerId),
-      applicationStatus: APPLICATION_STATUS.APPROVED,
-    })
-    .populate('user', 'email isActive')
-    .select('-cvDocument -licenseDocument -applicationSubmittedAt -reviewedBy -rejectionReason');
+  const profile = await ProviderProfile.findOne({
+    user: new Types.ObjectId(providerId),
+    applicationStatus: APPLICATION_STATUS.APPROVED,
+  })
+    .populate("user", "email isActive name")
+    .select(
+      "-cvDocument -licenseDocument -applicationSubmittedAt -reviewedBy -rejectionReason",
+    );
 
   if (!profile) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Provider not found');
+    throw new ApiError(StatusCodes.NOT_FOUND, "Provider not found");
   }
   return profile;
 };
@@ -344,12 +455,15 @@ const getPublicProviderById = async (providerId: string) => {
 
 const getAllProviders = async (query: Record<string, unknown>) => {
   const providerQuery = new QueryBuilder(
-    ProviderProfile.find()
-      .populate('user', 'email role isEmailVerified isBlocked lastLogin createdAt')
-      .populate('reviewedBy', 'email'),
+    ProviderProfile.find({}, { licenseNumber: 1, applicationSubmittedAt: 1 })
+      .populate(
+        "user",
+        "email role isEmailVerified isBlocked lastLogin createdAt",
+      )
+      .populate("reviewedBy", "email"),
     query,
   )
-    .search(['fullName', 'city', 'licenseNumber', 'providerType'])
+    .search(["fullName", "city", "licenseNumber", "providerType"])
     .filter()
     .dateRange()
     .sort()
@@ -366,15 +480,15 @@ const getAllProviders = async (query: Record<string, unknown>) => {
 
 const reviewApplication = async (
   providerId: string,
-  adminId:    string,
-  payload:    TAdminReviewInput,
+  adminId: string,
+  payload: TAdminReviewInput,
 ) => {
   const profile = await ProviderProfile.findOne({
     user: new Types.ObjectId(providerId),
   });
 
   if (!profile) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Provider profile not found');
+    throw new ApiError(StatusCodes.NOT_FOUND, "Provider profile not found");
   }
 
   if (profile.applicationStatus !== APPLICATION_STATUS.PENDING) {
@@ -384,48 +498,48 @@ const reviewApplication = async (
     );
   }
 
-  const isApprove = payload.action === 'approve';
+  const isApprove = payload.action === "approve";
 
   const updateData: Record<string, unknown> = {
-    applicationStatus: isApprove ? APPLICATION_STATUS.APPROVED : APPLICATION_STATUS.REJECTED,
-    reviewedBy:        new Types.ObjectId(adminId),
-    rejectionReason:   isApprove ? '' : (payload.rejectionReason ?? ''),
-    approvedAt:        isApprove ? new Date() : null,
+    applicationStatus: isApprove
+      ? APPLICATION_STATUS.APPROVED
+      : APPLICATION_STATUS.REJECTED,
+    reviewedBy: new Types.ObjectId(adminId),
+    rejectionReason: isApprove ? "" : (payload.rejectionReason ?? ""),
+    approvedAt: isApprove ? new Date() : null,
   };
 
   const updatedProfile = await ProviderProfile.findOneAndUpdate(
     { user: new Types.ObjectId(providerId) },
     { $set: updateData },
-    { returnDocument: 'after' },
-  ).populate('user', 'email role');
+    { returnDocument: "after" },
+  ).populate("user", "email role");
 
   if (isApprove) {
     // ── Activate user account ────────────────────────────────────────────────
-    await User.findByIdAndUpdate(
-      new Types.ObjectId(providerId),
-      { $set: { isActive: true } },
-    );
+    await User.findByIdAndUpdate(new Types.ObjectId(providerId), {
+      $set: { isActive: true },
+    });
 
     // ── F-5: Notify provider — PROVIDER_APPROVED ─────────────────────────────
     await sendNotification({
-      recipientId:    providerId,
-      type:           NOTIFICATION_TYPE.PROVIDER_APPROVED,
-      title:          'Profile Approved! 🎉',
-      body:           'Congratulations! Your provider profile has been approved. You can now set up your availability and start accepting bookings.',
-      referenceId:    profile._id,
-      referenceModel: REFERENCE_MODEL.PROVIDER_PAYOUT,   // closest ref — or add PROVIDER_PROFILE to enum
+      recipientId: providerId,
+      type: NOTIFICATION_TYPE.PROVIDER_APPROVED,
+      title: "Profile Approved! 🎉",
+      body: "Congratulations! Your provider profile has been approved. You can now set up your availability and start accepting bookings.",
+      referenceId: profile._id,
+      referenceModel: REFERENCE_MODEL.PROVIDER_PAYOUT, // closest ref — or add PROVIDER_PROFILE to enum
     });
-
   } else {
     // ── F-5: Notify provider — PROVIDER_REJECTED ─────────────────────────────
     await sendNotification({
-      recipientId:    providerId,
-      type:           NOTIFICATION_TYPE.PROVIDER_REJECTED,
-      title:          'Profile Not Approved',
-      body:           payload.rejectionReason
+      recipientId: providerId,
+      type: NOTIFICATION_TYPE.PROVIDER_REJECTED,
+      title: "Profile Not Approved",
+      body: payload.rejectionReason
         ? `Your provider profile was not approved. Reason: ${payload.rejectionReason}`
-        : 'Your provider profile was not approved. Please contact support for more information.',
-      referenceId:    profile._id,
+        : "Your provider profile was not approved. Please contact support for more information.",
+      referenceId: profile._id,
       referenceModel: REFERENCE_MODEL.PROVIDER_PAYOUT,
     });
   }
@@ -433,13 +547,12 @@ const reviewApplication = async (
   return updatedProfile;
 };
 
-
 // ─── Internal — called from Review module ────────────────────────────────────
 
 const updateRatingStats = async (
-  userId:           string,
+  userId: string,
   newAverageRating: number,
-  newTotalReviews:  number,
+  newTotalReviews: number,
 ) => {
   const isTopProvider = newAverageRating >= 4.5 && newTotalReviews >= 10;
 
@@ -448,7 +561,7 @@ const updateRatingStats = async (
     {
       $set: {
         averageRating: newAverageRating,
-        totalReviews:  newTotalReviews,
+        totalReviews: newTotalReviews,
         isTopProvider,
       },
     },
@@ -456,13 +569,20 @@ const updateRatingStats = async (
 };
 
 const getProviderById = async (providerId: string) => {
-  const profile = await ProviderProfile
-    .findOne({ user: new Types.ObjectId(providerId) })
-    .populate('user', 'email role isEmailVerified isBlocked lastLogin createdAt')
-    .populate('reviewedBy', 'email');
+  const profile = await ProviderProfile.findOne({
+    user: new Types.ObjectId(providerId),
+  })
+    .populate(
+      "user",
+      "email role isEmailVerified isBlocked lastLogin createdAt",
+    )
+    .populate("reviewedBy", "email")
+    .select(
+      "applicationSubmittedAt fullName cvDocument licenseDocument licenseNumber licenseState officeAddress phone professionalPhoto professionalVideo",
+    );
 
   if (!profile) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Provider profile not found');
+    throw new ApiError(StatusCodes.NOT_FOUND, "Provider profile not found");
   }
   return profile;
 };
@@ -476,5 +596,5 @@ export const ProviderProfileService = {
   getAllProviders,
   reviewApplication,
   updateRatingStats,
-  getProviderById
+  getProviderById,
 };

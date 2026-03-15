@@ -8,9 +8,21 @@ import {
   TStep4Input, TStep5Input,
   TIntakeStepInput, TProfileUpdateInput,
 } from './clientProfile.validation';
+
+
 // profileImage Use project helpers — no more custom normalizePath
 import unlinkFile from '../../../shared/unLinkFIle';
 import { getSingleFilePath } from '../../../shared/getFilePath';
+
+import { Invoice }         from '../invoice/invoice.model';
+import { Appointment }     from '../appointment/appointment.model';
+import { ProviderProfile } from '../provider-profile/providerProfile.model';
+
+
+import { ClinicalNote }    from '../clinical-note/clinicalNote.model';
+
+import { APPOINTMENT_STATUS } from '../../../enums/appointment';
+import { USER_ROLES }      from '../../../enums/user';
 
 // ─── Normalize req.files (array → Record for .any() safety) ──────────────────
 const normalizeFiles = (
@@ -206,30 +218,260 @@ const updateMyProfile = async (
   ).populate('user', 'email role isEmailVerified lastLogin createdAt');
 };
 
-const getClientById = async (clientId: string, requesterRole: string) => {
+
+
+
+
+
+
+
+
+// ── Helper: age from dateOfBirth ──────────────────────────────────
+const calcAge = (dob: Date | undefined): number | null => {
+  if (!dob) return null;
+  const diff = Date.now() - new Date(dob).getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+};
+
+// ══════════════════════════════════════════════════════════════════
+//  getClientById
+
+const getClientById = async (
+  clientId:      string,
+  requesterRole: string,
+  requesterId?:  string,
+) => {
+
   const profile = await ClientProfile
     .findOne({ user: new Types.ObjectId(clientId) })
-    .populate('user', 'email role isEmailVerified isBlocked lastLogin createdAt');
+    .populate('user', 'email role isBlocked status lastLogin createdAt profileImage')
+    .lean();
 
-  if (!profile) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Client profile not found');
-  }
+  if (!profile) throw new ApiError(StatusCodes.NOT_FOUND, 'Client profile not found');
 
-  if (requesterRole === 'PROVIDER' || requesterRole === 'provider') {
-    const safe = profile.toObject() as unknown as Record<string, unknown>;
-    delete safe.insurance;
-    delete safe.billingAddress;
-    delete safe.paymentMethod;
-    delete safe.medicalHistory;
-    return safe;
-  }
+  const user       = profile.user as any;
+  const now        = new Date();
+  const isProvider = requesterRole === USER_ROLES.PROVIDER;
+  const isAdmin    = requesterRole === USER_ROLES.ADMIN;
 
-  return profile;
+  // ── All queries in parallel ───────────────────────────────────
+  const [
+    recentInvoices,
+    allAppointments,
+    providerSessionsRaw,
+    clinicalNotes,
+  ] = await Promise.all([
+
+    // ADMIN: all invoices for this client
+    isAdmin
+      ? Invoice.find({ client: new Types.ObjectId(clientId) })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .select('invoiceNumber sessionFee processingFee totalAmount paymentStatus paidAt createdAt')
+          .lean()
+      : Promise.resolve([]),
+
+    // ADMIN: full appointment history across all providers
+    // PROVIDER: also fetch all to build careTeam
+    Appointment.find({ client: new Types.ObjectId(clientId) })
+      .sort({ scheduledAt: -1 })
+      .limit(20)
+      .populate('provider', '_id')
+      .select('appointmentId scheduledAt durationMinutes sessionFee status format sessionName provider')
+      .lean(),
+
+    // PROVIDER: only this provider's sessions with client
+    isProvider && requesterId
+      ? Appointment.find({
+          client:   new Types.ObjectId(clientId),
+          provider: new Types.ObjectId(requesterId),
+        })
+          .sort({ scheduledAt: -1 })
+          .limit(20)
+          .select('appointmentId scheduledAt durationMinutes sessionFee status format sessionName')
+          .lean()
+      : Promise.resolve([]),
+
+    // PROVIDER: quick notes written by this provider
+    isProvider && requesterId
+      ? ClinicalNote.find({
+  client:   new Types.ObjectId(clientId),
+  provider: new Types.ObjectId(requesterId),
+})
+  .sort({ createdAt: -1 })
+  .limit(3)
+  .select(
+    'noteType quickNote subjective objective assessment plan ' +
+    'isFinalized finalizedAt isSigned signedAt appointment createdAt updatedAt'
+  )
+  .lean()
+      : Promise.resolve([]),
+  ]);
+
+  // ── Build providerMap from allAppointments ────────────────────
+  const allProviderUserIds = [
+    ...new Set(
+      allAppointments
+        .map((a: any) => a.provider?._id?.toString())
+        .filter(Boolean),
+    ),
+  ];
+
+  const providerProfiles = allProviderUserIds.length
+    ? await ProviderProfile.find({ user: { $in: allProviderUserIds } })
+        .select('user fullName professionalPhoto providerType')
+        .lean()
+    : [];
+
+  const providerMap = Object.fromEntries(
+    providerProfiles.map((p: any) => [
+      p.user.toString(),
+      { fullName: p.fullName, photo: p.professionalPhoto ?? '', providerType: p.providerType },
+    ]),
+  );
+
+  // ── Shape appointment history (admin) ─────────────────────────
+  const appointmentHistory = allAppointments.map((appt: any) => ({
+    appointmentId:   appt.appointmentId,
+    scheduledAt:     appt.scheduledAt,
+    durationMinutes: appt.durationMinutes,
+    sessionFee:      appt.sessionFee,
+    status:          appt.status,
+    format:          appt.format,
+    sessionName:     appt.sessionName,
+    therapist: {
+      fullName: providerMap[appt.provider?._id?.toString()]?.fullName ?? 'Provider',
+      photo:    providerMap[appt.provider?._id?.toString()]?.photo    ?? '',
+    },
+  }));
+
+  // ── Shape session history (provider) ─────────────────────────
+  const sessionHistory = providerSessionsRaw.map((appt: any) => ({
+    appointmentId:   appt.appointmentId,
+    date:            appt.scheduledAt,
+    type:            appt.format,
+    sessionName:     appt.sessionName,
+    durationMinutes: appt.durationMinutes,
+    status:          appt.status,
+  }));
+
+  // ── Last / next session (provider) ───────────────────────────
+  const completed = providerSessionsRaw.filter(
+    (a: any) => a.status === APPOINTMENT_STATUS.COMPLETED,
+  );
+  const upcoming = providerSessionsRaw
+    .filter((a: any) =>
+      a.status === APPOINTMENT_STATUS.UPCOMING && new Date(a.scheduledAt) > now,
+    )
+    .sort((a: any, b: any) =>
+      new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime(),
+    );
+
+  const lastSession = completed[0]?.scheduledAt ?? null;
+  const nextSession = upcoming[0]?.scheduledAt  ?? null;
+
+  // ── Care team: all OTHER providers who treated this client ────
+  const careTeam = allProviderUserIds
+    .filter((id) => id !== requesterId)
+    .map((id) => ({
+      fullName:     providerMap[id]?.fullName     ?? 'Provider',
+      photo:        providerMap[id]?.photo        ?? '',
+      providerType: providerMap[id]?.providerType ?? '',
+    }));
+
+  // ── Demographics ──────────────────────────────────────────────
+  const demographics = {
+    age:               calcAge(profile.dateOfBirth as Date | undefined),
+    genderIdentity:    (profile as any).genderIdentity    ?? null,
+    location: profile.billingAddress
+      ? `${(profile.billingAddress as any).city ?? ''}, ${(profile.billingAddress as any).country ?? ''}`.trim()
+      : null,
+    preferredLanguage: (profile as any).preferredLanguage ?? 'English',
+    reasonForTherapy:  (profile as any).reasonForTherapy  ?? null,
+    primaryGoal:       (profile as any).primaryGoal       ?? null,
+  };
+
+  // ══════════════════════════════════════════════════════════════
+  //  UNIFIED RESPONSE — both roles get ALL common fields
+  //  sensitive fields added only for ADMIN
+  // ══════════════════════════════════════════════════════════════
+  return {
+    // ── Header ───────────────────────────────────────────
+    clientId:     `MND-${String(profile._id).slice(-5).toUpperCase()}`,
+    fullName:      profile.fullName,
+    profilePhoto:  profile.profilePhoto || user?.profileImage || '',
+    memberSince:   profile.memberSince,
+    email:         profile.email || user?.email || '',
+    phone:         profile.phone || '',
+
+    // ── Personal Info — both roles (no sensitive fields) ─
+    personalInfo: {
+      fullName: profile.fullName,
+      email:    profile.email || user?.email || '',
+      phone:    profile.phone || '',
+      location: demographics.location,
+    },
+
+    // ── Account Access — both roles ───────────────────────
+    accountAccess: {
+      lastLogin:      user?.lastLogin ?? null,
+      accountCreated: user?.createdAt ?? null,
+      isBlocked:      user?.isBlocked ?? false,
+      status:         user?.status    ?? 'active',
+    },
+
+    // ── Stats — both roles ────────────────────────────────
+    stats: {
+      totalSessions: profile.totalSessions,
+      totalSpent:    profile.totalSpent,
+    },
+
+    // ── Demographics — both roles ─────────────────────────
+    demographics,
+
+    // ── Provider card (lastSession / nextSession) ─────────
+    clientCard: {
+      fullName:    profile.fullName,
+      photo:       profile.profilePhoto || user?.profileImage || '',
+      lastSession,
+      nextSession,
+      location:    demographics.location,
+    },
+
+    // ── Provider-specific: their own session history ──────
+    sessionHistory,
+
+    // ── Care team ─────────────────────────────────────────
+    careTeam,
+
+    // ── Quick notes by this provider ─────────────────────
+    quickNotes: clinicalNotes,
+
+    // ── ADMIN ONLY: full appointment history ─────────────
+    ...(isAdmin && { appointmentHistory }),
+
+    // ── ADMIN ONLY: invoices ──────────────────────────────
+    ...(isAdmin && { recentInvoices }),
+
+    // ── ADMIN ONLY: sensitive profile fields ─────────────
+    ...(isAdmin && {
+      sensitiveInfo: {
+        billingAddress: profile.billingAddress,
+        insurance:      (profile as any).insurance,
+        paymentMethod:  (profile as any).paymentMethod,
+        medicalHistory: (profile as any).medicalHistory,
+      },
+    }),
+  };
 };
+
+
+
+
 
 const getAllClients = async (query: Record<string, unknown>) => {
   const clientQuery = new QueryBuilder(
-    ClientProfile.find().populate(
+    ClientProfile.find({}, {fullName: 1, email: 1, phone: 1, billingAddress:1, memberSince:1}).populate(
       'user',
       'email role isEmailVerified isBlocked lastLogin createdAt',
     ),

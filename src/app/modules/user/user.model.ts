@@ -82,7 +82,9 @@ select: false
 }
 
 }, {
-timestamps: true
+timestamps: true,
+toJSON: {virtuals: true},
+toObject: {virtuals: true}
 })
 
 // exist user check
@@ -124,5 +126,12 @@ this.password = await bcrypt.hash(this.password, Number(config.bcrypt_salt_round
 }
 
 })
+
+userSchema.virtual('providerProfile', {
+  ref:        'ProviderProfile',  // model name
+  localField: '_id',              // User._id
+  foreignField: 'user',           // ProviderProfile.user
+  justOne:    true,
+});
 
 export const User = model<IUser, UserModal>("User", userSchema)
