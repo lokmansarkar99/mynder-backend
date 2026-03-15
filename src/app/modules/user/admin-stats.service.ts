@@ -27,6 +27,15 @@ type LeanUser = {
   createdAt:    Date;
 };
 
+type LeanAppointment = {
+  _id:         unknown;
+  sessionName: string;
+  createdAt:   Date;
+  client:      { name: string; profileImage: string } | null;
+  provider:    { name: string } | null;
+};
+
+
 //  getAdminOverview  — single service powering the whole dashboard
 
 const getAdminOverview = async () => {
@@ -131,7 +140,8 @@ const getAdminOverview = async () => {
       .sort({ createdAt: -1 })
       .limit(10)
       .populate('client',   'name profileImage')
-      .populate('provider', 'name'),
+      .populate('provider', 'name')
+      .lean<LeanAppointment[]>()
   ]);
 
   // ── User growth chart ─────────────────────────────────────────

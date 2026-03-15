@@ -30,7 +30,7 @@ passport.use(
             name: profile.displayName,
             email,
             profileImage: profile.photos?.[0]?.value || "",
-            role: USER_ROLES.USER,
+            role: USER_ROLES.CLIENT,
             status: STATUS.ACTIVE,
             verified: true,
             // we can store google id in passowrd field 

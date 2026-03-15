@@ -3,6 +3,7 @@ import { StatusCodes } from 'http-status-codes';
 import catchAsync from '../../../shared/catchAsync';
 import sendResponse from '../../../shared/sendResponse';
 import { AppointmentService } from './appointment.service';
+import { USER_ROLES } from '../../../enums/user';
 
 // ─── 1. Create Checkout Session 
 const createCheckoutSession = catchAsync(async (req: Request, res: Response) => {
@@ -27,7 +28,7 @@ const createCheckoutSession = catchAsync(async (req: Request, res: Response) => 
 const getMyAppointments = catchAsync(async (req: Request, res: Response) => {
   const result = await AppointmentService.getMyAppointments(
     req.user.id,
-    req.user.role,
+    req.user.role as USER_ROLES.CLIENT | USER_ROLES.PROVIDER,
     req.query as Record<string, unknown>,
   );
 
