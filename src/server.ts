@@ -6,7 +6,7 @@ import { logger, errorLogger } from './shared/logger';
 import colors   from 'colors';
 import seedAdmin from './DB';
 import { initSocket } from './socket/socket';  
-
+import { registerAppointmentReminderCron } from './cron/appointment.reminder.cron';
 // ─── Uncaught Exception Handler — Synchronous Errors ─────────────────────────
 process.on('uncaughtException', (err) => {
   errorLogger.error(`Uncaught Exception: ${err.message}`);
@@ -22,6 +22,7 @@ async function main() {
       serverSelectionTimeoutMS: 5000,
       family: 4,
     });
+    registerAppointmentReminderCron()
     logger.info(colors.green('Database connected successfully!'));
 
     seedAdmin();
@@ -38,7 +39,7 @@ async function main() {
     // Step 3: httpServer.listen()  ─────────────────
     server = httpServer.listen(port, () => {
       logger.info(colors.green(`🚀 Server running on port ${port}`));
-      logger.info(colors.cyan(`🔌 Socket.IO ready → ws://localhost:${port}`)); // 🆕
+      logger.info(colors.cyan(`🔌 Socket.IO ready → ws://localhost:${port}`)); 
     });
 
   } catch (error) {

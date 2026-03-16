@@ -80,7 +80,9 @@ const slotSchema = new Schema<ISlotDocument>(
       type:    Schema.Types.ObjectId,
       ref:     'Appointment',
       default: null,
+      
     },
+    timezone: { type: String,  default: 'America/New_York' },
   },
   { timestamps: true }
 );

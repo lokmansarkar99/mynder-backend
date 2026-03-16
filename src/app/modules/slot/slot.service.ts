@@ -118,6 +118,7 @@ const createSlot = async (providerId: string, payload: TCreateSlotPayload) => {
     meetingId:       payload.meetingId   ?? '',
     meetingPassword: payload.meetingPassword ?? '',
     isBooked:        false,
+    timezone: payload.timezone
   });
 
   return slot;

@@ -14,6 +14,7 @@ const createSlotSchema = z.object({
                        message: 'Invalid sessionType ID',
                      }),
     meetingLink:     z.string().url('meetingLink must be a valid URL').optional().or(z.literal('')),
+    timezone: z.string(),
     meetingId:       z.string().optional().default(''),
     meetingPassword: z.string().optional().default(''),
   }),

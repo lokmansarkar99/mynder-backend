@@ -24,6 +24,8 @@ export type ISlot = {
   isExpired: boolean;
   bookedBy:        Types.ObjectId | null;   // ref → User (Client)
   appointment:     Types.ObjectId | null;   // ref → Appointment
+
+  timezone: String
 };
 
 export type ISlotDocument = ISlot & Document;

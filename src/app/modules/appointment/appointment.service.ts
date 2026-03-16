@@ -1,30 +1,34 @@
-import { Types } from 'mongoose';
-import { StatusCodes } from 'http-status-codes';
-import ApiError from '../../../errors/ApiErrors';
-import { Appointment } from './appointment.model';
-import { Slot } from '../slot/slot.model';
-import { Invoice } from '../invoice/invoice.model';
-import { ProviderPayout } from '../provider-payout/providerPayout.model';
+import { Types }        from 'mongoose';
+import { StatusCodes }  from 'http-status-codes';
+import ApiError         from '../../../errors/ApiErrors';
+import { Appointment }  from './appointment.model';
+import { Slot }         from '../slot/slot.model';
+import { Invoice }      from '../invoice/invoice.model';
+import { ProviderPayout }  from '../provider-payout/providerPayout.model';
 import { SessionType as SessionTypeModel } from '../session-type/sessionType.model';
-import stripeClient from '../../../config/stripe.config';
-import { StripeService } from '../stripe/stripe.service';
-import { QueryBuilder } from '../../buillder/queryBuilder';
+import stripeClient        from '../../../config/stripe.config';
+import { StripeService }   from '../stripe/stripe.service';
+import { QueryBuilder }    from '../../buillder/queryBuilder';
 import { APPOINTMENT_STATUS, CANCELLED_BY, SESSION_TYPE } from '../../../enums/appointment';
-import { PAYMENT_STATUS, PAYMENT_METHOD } from '../../../enums/payment';
-import { IAppointmentDocument } from './appointment.interface';
+import { PAYMENT_STATUS, PAYMENT_METHOD }                  from '../../../enums/payment';
+import { IAppointmentDocument }                            from './appointment.interface';
 import { TCancelAppointmentPayload, TSessionSummaryPayload } from './appointment.validation';
 import { TCreateCheckoutSessionPayload, TCreateBookingRecordsParams } from '../../../types/appointment.types';
+import config              from '../../../config';
+import sendNotification    from '../../../shared/sendNotification';
+import { NOTIFICATION_TYPE, REFERENCE_MODEL } from '../../../enums/notification';
+import { ProviderProfile } from '../provider-profile/providerProfile.model';
+import { ClientProfile }   from '../client-profile/clientProfile.model';
+import { User }            from '../user/user.model';
+import { emailHelper }     from '../../../helpers/emailHelper';
+import { emailTemplate }   from '../../../shared/emailTemplate';
 
+import { fromZonedTime } from 'date-fns-tz';
 
-import config from '../../../config';
+// ═════════════════════════════════════════════════════════════════
+// Private Helper — called by stripe webhook after payment
+// ═════════════════════════════════════════════════════════════════
 
-import sendNotification from '../../../shared/sendNotification';
-import { NOTIFICATION_TYPE , REFERENCE_MODEL} from '../../../enums/notification';
-import { ProviderProfile } from './../provider-profile/providerProfile.model';
-import { ClientProfile } from '../client-profile/clientProfile.model';
-
-// ─── Private Helper — called by stripe webhook after payment ──────────────────
-// Exported so stripe.service.ts can call it from webhook handler
 export const createBookingFromWebhook = async (
   params: TCreateBookingRecordsParams,
 ): Promise<void> => {
@@ -44,11 +48,18 @@ export const createBookingFromWebhook = async (
 
   const sessionTypeDoc = await SessionTypeModel.findById(slot.sessionType);
 
-  const [startHour, startMin] = slot.startTime.split(':').map(Number);
-  const scheduledAt = new Date(slot.date);
-  scheduledAt.setUTCHours(startHour, startMin, 0, 0);
+  // ── ✅ Use slot.timezone (provider owns it) — client timezone is fallback only
+  const appointmentTimezone = (slot as any).timezone ?? timezone ?? 'America/New_York';
 
-  // ── Create Appointment ────────────────────────────────────────────────────
+  const slotDate  = new Date(slot.date);
+  const year      = slotDate.getUTCFullYear();
+  const month     = String(slotDate.getUTCMonth() + 1).padStart(2, '0');
+  const day       = String(slotDate.getUTCDate()).padStart(2, '0');
+  const dateStr   = `${year}-${month}-${day}`;
+  const localDT   = `${dateStr}T${slot.startTime}:00`;
+  const scheduledAt = fromZonedTime(localDT, appointmentTimezone); // ✅ slot timezone
+
+  // ── Create Appointment ────────────────────────────────────────
   const appointment = await Appointment.create({
     client:          clientObjectId,
     provider:        slot.provider,
@@ -58,7 +69,7 @@ export const createBookingFromWebhook = async (
     sessionName:     slot.sessionName,
     scheduledAt,
     durationMinutes: slot.duration,
-    timezone,
+    timezone:        appointmentTimezone,  // ✅ slot timezone
     sessionFee,
     meetingLink:     slot.meetingLink     ?? '',
     meetingId:       slot.meetingId       ?? '',
@@ -67,12 +78,12 @@ export const createBookingFromWebhook = async (
     status:          APPOINTMENT_STATUS.UPCOMING,
   }) as IAppointmentDocument;
 
-  // ── Lock Slot ─────────────────────────────────────────────────────────────
+  // ── Lock Slot ─────────────────────────────────────────────────
   await Slot.findByIdAndUpdate(slot._id, {
     $set: { isBooked: true, bookedBy: clientObjectId, appointment: appointment._id },
   });
 
-  // ── Create Invoice ────────────────────────────────────────────────────────
+  // ── Create Invoice ────────────────────────────────────────────
   const invoice = await Invoice.create({
     client:      clientObjectId,
     provider:    slot.provider,
@@ -88,7 +99,7 @@ export const createBookingFromWebhook = async (
     stripePaymentIntentId: stripeSessionId,
   });
 
-  // ── Create ProviderPayout ─────────────────────────────────────────────────
+  // ── Create ProviderPayout ─────────────────────────────────────
   await ProviderPayout.create({
     provider:           slot.provider,
     appointment:        appointment._id,
@@ -97,14 +108,12 @@ export const createBookingFromWebhook = async (
     status:             'pending',
   });
 
-  // ── Link Invoice → Appointment ────────────────────────────────────────────
+  // ── Link Invoice → Appointment ────────────────────────────────
   await Appointment.findByIdAndUpdate(appointment._id, {
     $set: { invoice: (invoice as any)._id },
   });
 
-  // ── F-1: Notify CLIENT + PROVIDER — BOOKING_CONFIRMED ────────────────────
-  // Promise.allSettled → if one notification fails, the other still fires
-  // and neither failure crashes the webhook handler
+  // ── Notifications ─────────────────────────────────────────────
   await Promise.allSettled([
     sendNotification({
       recipientId:    clientId,
@@ -123,11 +132,49 @@ export const createBookingFromWebhook = async (
       referenceModel: REFERENCE_MODEL.APPOINTMENT,
     }),
   ]);
+
+  // ── ✅ Booking Confirmation Emails ────────────────────────────
+  try {
+    const [clientUser, providerUser, clientProf, providerProf] = await Promise.all([
+      User.findById(clientObjectId).select('email').lean(),
+      User.findById(slot.provider).select('email').lean(),
+      ClientProfile.findOne({ user: clientObjectId }).select('fullName').lean(),
+      ProviderProfile.findOne({ user: slot.provider }).select('fullName').lean(),
+    ]);
+
+    const clientEmail   = (clientUser   as any)?.email ?? '';
+    const providerEmail = (providerUser as any)?.email ?? '';
+
+    if (clientEmail && providerEmail) {
+      const emailData = {
+        appointmentId:   appointment.appointmentId,
+        clientName:      (clientProf  as any)?.fullName ?? clientEmail,
+        clientEmail,
+        providerName:    (providerProf as any)?.fullName ?? providerEmail,
+        providerEmail,
+        sessionName:     slot.sessionName     ?? 'Therapy Session',
+        durationMinutes: slot.duration,
+        scheduledAt,
+        timezone:        appointmentTimezone,  // ✅ slot timezone
+        format:          (slot as any).format ?? 'online',
+        sessionFee,
+        meetingLink:     slot.meetingLink      ?? '',
+        meetingId:       slot.meetingId        ?? '',
+        meetingPassword: slot.meetingPassword  ?? '',
+      };
+
+      await Promise.allSettled([
+        emailHelper.sendEmail(emailTemplate.appointmentBookedClient(emailData)),
+        emailHelper.sendEmail(emailTemplate.appointmentBookedProvider(emailData)),
+      ]);
+    }
+  } catch (emailErr) {
+    console.error('[EMAIL] Booking confirmation failed:', emailErr);
+  }
 };
 
 
-// ─── 1. Create Checkout Session─────
-// Returns Stripe hosted checkout URL → frontend redirects to it
+// ─── 1. Create Checkout Session ───────────────────────────────────
 const createCheckoutSession = async (
   clientId: string,
   payload:  TCreateCheckoutSessionPayload,
@@ -138,18 +185,15 @@ const createCheckoutSession = async (
     timezone    = 'America/New_York',
   } = payload;
 
-  // ── Validate Slot
   const slot = await Slot.findById(new Types.ObjectId(slotId));
   if (!slot)          throw new ApiError(StatusCodes.NOT_FOUND,  'Slot not found');
   if (slot.isBooked)  throw new ApiError(StatusCodes.CONFLICT,   'This slot is already booked');
   if (slot.isExpired) throw new ApiError(StatusCodes.GONE,       'This slot has expired');
-  if (slot.provider.toString() === clientId) {
+  if (slot.provider.toString() === clientId)
     throw new ApiError(StatusCodes.BAD_REQUEST, 'You cannot book your own slot');
-  }
 
   const { processingFee } = StripeService.calculateFees(slot.price);
 
-  // ── Create Stripe Hosted Checkout Session
   const session = await stripeClient.checkout.sessions.create({
     mode: 'payment',
     line_items: [
@@ -173,10 +217,8 @@ const createCheckoutSession = async (
         quantity: 1,
       },
     ],
-    //  Stripe redirects here after payment
     success_url: `${config.stripe.success_url}?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url:  `${config.stripe.cancel_url as string}`,
-    //  All info stored here — webhook reads this
+    cancel_url:  config.stripe.cancel_url as string,
     metadata: {
       clientId,
       slotId,
@@ -187,12 +229,12 @@ const createCheckoutSession = async (
   });
 
   return {
-    checkoutUrl: session.url,   // → frontend: window.location.href = checkoutUrl
+    checkoutUrl: session.url,
     sessionId:   session.id,
   };
 };
 
-// ─── 2. Get My Appointments ──
+// ─── 2. Get My Appointments ───────────────────────────────────────
 const getMyAppointments = async (
   userId: string,
   role:   'CLIENT' | 'PROVIDER',
@@ -204,11 +246,14 @@ const getMyAppointments = async (
   if (query.status) filter.status = query.status;
 
   const appointmentQuery = new QueryBuilder(
-    Appointment.find(filter, {status: 1, meetingLink: 1, meetingId: 1, meetingPassword: 1,sessionType: 1, scheduledAt: 1, cancelledBy: 1, cancellationReason: 1})
+    Appointment.find(filter, {
+      status: 1, meetingLink: 1, meetingId: 1, meetingPassword: 1,
+      sessionType: 1, scheduledAt: 1, cancelledBy: 1, cancellationReason: 1,
+    })
       .populate('client',   'email name')
       .populate('provider', 'email name')
       .populate('slot',     'startTime endTime date')
-      .populate('invoice', 'paymentStatus'),
+      .populate('invoice',  'paymentStatus'),
     query,
   )
     .sort()
@@ -222,8 +267,12 @@ const getMyAppointments = async (
   return { data, meta };
 };
 
-// ─── 3. Get Appointment By ID 
-const getAppointmentById = async (appointmentId: string, userId: string, role: string) => {
+// ─── 3. Get Appointment By ID ─────────────────────────────────────
+const getAppointmentById = async (
+  appointmentId: string,
+  userId:        string,
+  role:          string,
+) => {
   const appointment = await Appointment.findById(new Types.ObjectId(appointmentId))
     .populate('client',   'email name')
     .populate('provider', 'email name')
@@ -235,7 +284,7 @@ const getAppointmentById = async (appointmentId: string, userId: string, role: s
   return appointment;
 };
 
-// ─── 4. Cancel Appointment ───
+// ─── 4. Cancel Appointment ────────────────────────────────────────
 const cancelAppointment = async (
   appointmentId: string,
   userId:        string,
@@ -249,15 +298,12 @@ const cancelAppointment = async (
   const isProvider = appointment.provider.toString() === userId;
   const isAdmin    = role === 'ADMIN';
 
-  if (!isClient && !isProvider && !isAdmin) {
+  if (!isClient && !isProvider && !isAdmin)
     throw new ApiError(StatusCodes.FORBIDDEN, 'Not authorized to cancel');
-  }
-  if (appointment.status === APPOINTMENT_STATUS.COMPLETED) {
+  if (appointment.status === APPOINTMENT_STATUS.COMPLETED)
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Cannot cancel a completed appointment');
-  }
-  if (appointment.status === APPOINTMENT_STATUS.CANCELLED) {
+  if (appointment.status === APPOINTMENT_STATUS.CANCELLED)
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Already cancelled');
-  }
 
   let cancelledBy: CANCELLED_BY;
   if (isAdmin)       cancelledBy = CANCELLED_BY.ADMIN;
@@ -276,20 +322,19 @@ const cancelAppointment = async (
     { returnDocument: 'after' },
   );
 
-  // ── Unlock Slot 
+  // ── Unlock Slot ───────────────────────────────────────────────
   await Slot.findByIdAndUpdate(appointment.slot, {
     $set: { isBooked: false, bookedBy: null, appointment: null },
   });
 
-  // ── Auto-refund via Stripe
+  // ── Auto-refund via Stripe ────────────────────────────────────
   try {
     await StripeService.refundPayment(appointmentId, 'requested_by_customer');
   } catch (err) {
     console.error('[REFUND ERROR on cancel]', err);
   }
 
-  // ── F-2: Notify CLIENT + PROVIDER — BOOKING_CANCELLED 
-  // Who cancelled determines the message wording
+  // ── Notifications ─────────────────────────────────────────────
   const cancelledByLabel = isAdmin ? 'Admin' : isClient ? 'the client' : 'the provider';
 
   await Promise.allSettled([
@@ -311,17 +356,56 @@ const cancelAppointment = async (
     }),
   ]);
 
+  // ── ✅ Cancellation Emails ─────────────────────────────────────
+  try {
+    const [clientUser, providerUser, clientProf, providerProf] = await Promise.all([
+      User.findById(appointment.client).select('email').lean(),
+      User.findById(appointment.provider).select('email').lean(),
+      ClientProfile.findOne({ user: appointment.client }).select('fullName').lean(),
+      ProviderProfile.findOne({ user: appointment.provider }).select('fullName').lean(),
+    ]);
+
+    const clientEmail   = (clientUser   as any)?.email ?? '';
+    const providerEmail = (providerUser as any)?.email ?? '';
+
+    if (clientEmail && providerEmail) {
+      const cancelEmailData = {
+        appointmentId:      appointment.appointmentId,
+        clientName:         (clientProf   as any)?.fullName ?? clientEmail,
+        clientEmail,
+        providerName:       (providerProf as any)?.fullName ?? providerEmail,
+        providerEmail,
+        sessionName:        appointment.sessionName     ?? 'Therapy Session',
+        durationMinutes:    appointment.durationMinutes,
+        scheduledAt:        appointment.scheduledAt,
+        timezone:           appointment.timezone        ?? 'America/New_York',
+        format:             appointment.format          ?? 'online',
+        sessionFee:         appointment.sessionFee,
+        meetingLink:        appointment.meetingLink     ?? '',
+        meetingId:          appointment.meetingId       ?? '',
+        meetingPassword:    appointment.meetingPassword ?? '',
+        cancelledBy:        cancelledBy.toLowerCase() as 'client' | 'provider' | 'admin',
+        cancellationReason: payload.cancellationReason ?? '',
+      };
+
+      await Promise.allSettled([
+        emailHelper.sendEmail(emailTemplate.appointmentCancelledClient(cancelEmailData)),
+        emailHelper.sendEmail(emailTemplate.appointmentCancelledProvider(cancelEmailData)),
+      ]);
+    }
+  } catch (emailErr) {
+    console.error('[EMAIL] Cancellation email failed:', emailErr);
+  }
+
   return updated;
 };
 
-
-// ─── 5. Get All Appointments (Admin)
+// ─── 5. Get All Appointments (Admin) ─────────────────────────────
 const getAllAppointments = async (query: Record<string, unknown>) => {
   const appointmentQuery = new QueryBuilder(
-    Appointment.find({}, {appointmentId:1, scheduledAt:1, status:1})
-      .populate('client',   ' name')
-      .populate('provider', ' name'),
-      // .populate('invoice'),
+    Appointment.find({}, { appointmentId: 1, scheduledAt: 1, status: 1 })
+      .populate('client',   'name')
+      .populate('provider', 'name'),
     query,
   )
     .search(['appointmentId'])
@@ -337,7 +421,7 @@ const getAllAppointments = async (query: Record<string, unknown>) => {
   return { data, meta };
 };
 
-// ─── 6. Provider Today's Appointments ─────────────────────────────────────────
+// ─── 6. Provider Today's Appointments ────────────────────────────
 const getProviderTodayAppointments = async (providerId: string) => {
   const todayStart = new Date(); todayStart.setUTCHours(0,  0,  0,   0);
   const todayEnd   = new Date(); todayEnd.setUTCHours(23, 59, 59, 999);
@@ -352,10 +436,11 @@ const getProviderTodayAppointments = async (providerId: string) => {
     .populate('slot',   'startTime endTime');
 };
 
-// ─── 7. Start Session ────────
+// ─── 7. Start Session ─────────────────────────────────────────────
 const startSession = async (appointmentId: string, providerId: string) => {
   const appointment = await Appointment.findById(appointmentId);
-  if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
+  if (!appointment)
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
   if (appointment.provider.toString() !== providerId)
     throw new ApiError(StatusCodes.FORBIDDEN, 'Not your appointment');
   if (appointment.status !== APPOINTMENT_STATUS.UPCOMING)
@@ -368,10 +453,11 @@ const startSession = async (appointmentId: string, providerId: string) => {
   );
 };
 
-// ─── 8. Complete Session ─────
+// ─── 8. Complete Session ──────────────────────────────────────────
 const completeSession = async (appointmentId: string, providerId: string) => {
   const appointment = await Appointment.findById(appointmentId);
-  if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
+  if (!appointment)
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
   if (appointment.provider.toString() !== providerId)
     throw new ApiError(StatusCodes.FORBIDDEN, 'Not your appointment');
   if (appointment.status !== APPOINTMENT_STATUS.ONGOING)
@@ -384,10 +470,11 @@ const completeSession = async (appointmentId: string, providerId: string) => {
   );
 };
 
-// ─── 9. Mark No-Show ─────────
+// ─── 9. Mark No-Show ──────────────────────────────────────────────
 const markNoShow = async (appointmentId: string, userId: string) => {
   const appointment = await Appointment.findById(appointmentId);
-  if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
+  if (!appointment)
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
   if (appointment.provider.toString() !== userId)
     throw new ApiError(StatusCodes.FORBIDDEN, 'Only provider can mark no-show');
   if (appointment.status !== APPOINTMENT_STATUS.UPCOMING)
@@ -400,14 +487,15 @@ const markNoShow = async (appointmentId: string, userId: string) => {
   );
 };
 
-// ─── 10. Add Session Summary ─
+// ─── 10. Add Session Summary ──────────────────────────────────────
 const addSessionSummary = async (
   appointmentId: string,
   providerId:    string,
   payload:       TSessionSummaryPayload,
 ) => {
   const appointment = await Appointment.findById(appointmentId);
-  if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
+  if (!appointment)
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
   if (appointment.provider.toString() !== providerId)
     throw new ApiError(StatusCodes.FORBIDDEN, 'Not your appointment');
   if (appointment.status !== APPOINTMENT_STATUS.COMPLETED)
@@ -420,14 +508,8 @@ const addSessionSummary = async (
   );
 };
 
-
-
-// Add this new function to your existing appointment.service.ts
-// Keep all existing functions, just add this one
-
+// ─── 11. Admin Get Appointment By ID ─────────────────────────────
 const getAdminAppointmentById = async (appointmentId: string) => {
-
-  // ── 1. Get appointment with base populates ────────────────────
   const appointment = await Appointment.findById(new Types.ObjectId(appointmentId))
     .populate('client',   '_id email')
     .populate('provider', '_id email')
@@ -435,28 +517,22 @@ const getAdminAppointmentById = async (appointmentId: string) => {
     .populate('invoice',  'invoiceNumber sessionFee processingFee totalAmount paymentMethod paymentStatus paidAt cardLast4')
     .lean();
 
-  if (!appointment) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
-  }
+  if (!appointment) throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
 
   const clientUserId   = (appointment.client   as any)?._id;
   const providerUserId = (appointment.provider as any)?._id;
 
-  // ── 2. Fetch ClientProfile + ProviderProfile in parallel ─────
   const [clientProfile, providerProfile] = await Promise.all([
-
     ClientProfile.findOne({ user: clientUserId })
       .select('fullName phone profilePhoto billingAddress')
       .lean(),
-
     ProviderProfile.findOne({ user: providerUserId })
       .select('fullName phone providerType licenseNumber licenseState additionalCertifications professionalPhoto')
       .lean(),
   ]);
 
-  // ── 3. Shape invoice / payment info ──────────────────────────
-  const invoice  = appointment.invoice as any;
-  const slot     = appointment.slot    as any;
+  const invoice = appointment.invoice as any;
+  const slot    = appointment.slot    as any;
 
   const paymentStatus = invoice
     ? invoice.paymentStatus === 'completed'
@@ -464,7 +540,6 @@ const getAdminAppointmentById = async (appointmentId: string) => {
       : invoice.paymentStatus
     : 'Pending';
 
-  // ── 4. Shape timezone label ───────────────────────────────────
   const timezoneLabels: Record<string, string> = {
     'America/New_York':    'Eastern Standard Time (EST)',
     'America/Chicago':     'Central Standard Time (CST)',
@@ -475,7 +550,6 @@ const getAdminAppointmentById = async (appointmentId: string) => {
   };
   const timezoneLabel = timezoneLabels[appointment.timezone] ?? appointment.timezone;
 
-  // ── 5. Shape provider credentials label ──────────────────────
   const providerTypeLabels: Record<string, string> = {
     clinical_psychologist: 'Clinical Psychologist',
     licensed_counselor:    'Licensed Counselor',
@@ -484,71 +558,61 @@ const getAdminAppointmentById = async (appointmentId: string) => {
     other:                 'Therapist',
   };
   const credentials = [
-    providerProfile?.licenseNumber ? `${providerProfile.licenseNumber}` : null,
-    providerProfile?.providerType  ? providerTypeLabels[providerProfile.providerType] : null,
+    providerProfile?.licenseNumber ?? null,
+    providerProfile?.providerType
+      ? providerTypeLabels[providerProfile.providerType]
+      : null,
     providerProfile?.additionalCertifications ?? null,
   ]
     .filter(Boolean)
     .join(', ');
 
-  // ── 6. Final shaped response ──────────────────────────────────
   return {
-    // ── Header breadcrumb ──────────────────────────────────
-    appointmentId:  appointment.appointmentId,
-    status:         appointment.status,
-
-    // ── Client Information (top-left card) ────────────────
+    appointmentId: appointment.appointmentId,
+    status:        appointment.status,
     clientInfo: {
-      fullName:  clientProfile?.fullName ?? (appointment.client as any)?.email ?? 'Client',
-      clientId:  `C-${String(clientProfile?._id ?? clientUserId).slice(-5).toUpperCase()}`,
-      email:     (appointment.client as any)?.email ?? '',
-      phone:     clientProfile?.phone ?? '',
-      photo:     clientProfile?.profilePhoto ?? '',
+      fullName: clientProfile?.fullName ?? (appointment.client as any)?.email ?? 'Client',
+      clientId: `C-${String(clientProfile?._id ?? clientUserId).slice(-5).toUpperCase()}`,
+      email:    (appointment.client as any)?.email ?? '',
+      phone:    clientProfile?.phone               ?? '',
+      photo:    clientProfile?.profilePhoto        ?? '',
     },
-
-    // ── Provider Information (top-right card) ─────────────
     providerInfo: {
-      fullName:    providerProfile?.fullName ?? (appointment.provider as any)?.email ?? 'Provider',
-      credentials,                             // "Psy.D, Clinical Psychologist"
-      phone:       providerProfile?.phone ?? '',
-      photo:       providerProfile?.professionalPhoto ?? '',
-      providerType: providerProfile?.providerType ?? '',
+      fullName:     providerProfile?.fullName ?? (appointment.provider as any)?.email ?? 'Provider',
+      credentials,
+      phone:        providerProfile?.phone             ?? '',
+      photo:        providerProfile?.professionalPhoto ?? '',
+      providerType: providerProfile?.providerType      ?? '',
     },
-
-    // ── Session Schedule (bottom-left card) ───────────────
     sessionSchedule: {
-      scheduledAt:     appointment.scheduledAt,    // Date & Time
+      scheduledAt:     appointment.scheduledAt,
       endAt:           appointment.endAt,
       timezone:        appointment.timezone,
-      timezoneLabel,                               // "Eastern Standard Time (EST)"
+      timezoneLabel,
       durationMinutes: appointment.durationMinutes,
-      format:          appointment.format,         // "online" | "in_person"
-      meetingLink:     slot?.meetingLink    ?? appointment.meetingLink    ?? '',
-      meetingId:       slot?.meetingId      ?? appointment.meetingId      ?? '',
+      format:          appointment.format,
+      meetingLink:     slot?.meetingLink     ?? appointment.meetingLink     ?? '',
+      meetingId:       slot?.meetingId       ?? appointment.meetingId       ?? '',
       meetingPassword: slot?.meetingPassword ?? appointment.meetingPassword ?? '',
       sessionName:     appointment.sessionName,
     },
-
-    // ── Financial Information (bottom-right card) ─────────
     financialInfo: {
-      sessionFee:     appointment.sessionFee,       // 150
-      processingFee:  invoice?.processingFee  ?? 0,
-      totalAmount:    invoice?.totalAmount    ?? appointment.sessionFee,
-      paymentStatus,                                // "Paid (Credit Card ending in 4242)"
-      paymentMethod:  invoice?.paymentMethod  ?? '',
-      cardLast4:      invoice?.cardLast4      ?? '',
-      invoiceNumber:  invoice?.invoiceNumber  ?? '',
-      paidAt:         invoice?.paidAt         ?? null,
-      sessionType:    `${appointment.sessionName} (${appointment.durationMinutes} min)`,
+      sessionFee:    appointment.sessionFee,
+      processingFee: invoice?.processingFee ?? 0,
+      totalAmount:   invoice?.totalAmount   ?? appointment.sessionFee,
+      paymentStatus,
+      paymentMethod: invoice?.paymentMethod ?? '',
+      cardLast4:     invoice?.cardLast4     ?? '',
+      invoiceNumber: invoice?.invoiceNumber ?? '',
+      paidAt:        invoice?.paidAt        ?? null,
+      sessionType:   `${appointment.sessionName} (${appointment.durationMinutes} min)`,
     },
   };
 };
 
-
-
-
+// ═════════════════════════════════════════════════════════════════
 export const AppointmentService = {
-  createCheckoutSession,     
+  createCheckoutSession,
   getMyAppointments,
   getAppointmentById,
   cancelAppointment,
@@ -558,5 +622,5 @@ export const AppointmentService = {
   completeSession,
   markNoShow,
   addSessionSummary,
-  getAdminAppointmentById
+  getAdminAppointmentById,
 };

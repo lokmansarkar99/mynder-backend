@@ -1,11 +1,11 @@
-import nodemailer from "nodemailer";
-import config from "../config";
-import { errorLogger, logger } from "../shared/logger";
-import { ISendEmail } from "../types/email";
+import nodemailer     from 'nodemailer';
+import config         from '../config';
+import { logger, errorLogger } from '../shared/logger';
+import { ISendEmail } from '../types/emailTemplate';
 
 const transporter = nodemailer.createTransport({
-  host: config.email.host,
-  port: Number(config.email.port),
+  host:   config.email.host,
+  port:   Number(config.email.port),
   secure: true,
   auth: {
     user: config.email.user,
@@ -13,22 +13,18 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// console.log(config.email);
-const sendEmail = async (values: ISendEmail) => {
+const sendEmail = async (values: ISendEmail): Promise<void> => {
   try {
     const info = await transporter.sendMail({
-      from: `"MYNDER" ${config.email.from}`,
-      to: values.to,
+      from:    `"Mynder" <${config.email.from}>`,
+      to:      values.to,
       subject: values.subject,
-      html: values.html,
+      html:    values.html,
     });
-
-    logger.info("Mail send successfully", info.accepted);
+    logger.info('✅ Mail sent successfully', info.accepted);
   } catch (error) {
-    errorLogger.error("Email", error);
+    errorLogger.error('❌ Email send failed:', error);
   }
 };
 
-export const emailHelper = {
-  sendEmail,
-};
+export const emailHelper = { sendEmail };

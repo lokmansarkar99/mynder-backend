@@ -21,7 +21,7 @@ const appointmentSchema = new Schema<IAppointmentDocument>(
     sessionName:    { type: String, default: '' },    
 
     scheduledAt:     { type: Date,   required: true },
-    durationMinutes: { type: Number, enum: [15, 30, 60, 90], required: true },
+    durationMinutes: { type: Number, min: 5, required: true },
     endAt:           { type: Date },
     timezone:        { type: String, default: 'America/New_York' },
     format:          { type: String, enum: Object.values(SESSION_FORMAT), default: SESSION_FORMAT.ONLINE },
