@@ -37,8 +37,8 @@ const getMyPayouts = async (
   query:      Record<string, unknown>,
 ) => {
   const payoutQuery = new QueryBuilder(
-    ProviderPayout.find({ provider: new Types.ObjectId(providerId) })
-      .populate('appointment', 'appointmentId scheduledAt sessionFee status'),
+    ProviderPayout.find({ provider: new Types.ObjectId(providerId) }, {payoutDate:1, netAmount: 1, status:1}),
+      // .populate('appointment', 'appointmentId scheduledAt sessionFee status'),
     query,
   )
     .filter()

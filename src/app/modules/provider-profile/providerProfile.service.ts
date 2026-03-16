@@ -458,7 +458,7 @@ const getAllProviders = async (query: Record<string, unknown>) => {
     ProviderProfile.find({}, { licenseNumber: 1, applicationSubmittedAt: 1 })
       .populate(
         "user",
-        "email role isEmailVerified isBlocked lastLogin createdAt",
+        "email name isEmailVerified isBlocked lastLogin createdAt",
       )
       .populate("reviewedBy", "email"),
     query,

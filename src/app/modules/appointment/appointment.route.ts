@@ -45,6 +45,11 @@ router.get(
   AppointmentController.getAppointmentById,
 );
 
+router.get(
+  '/admin/:id',
+  checkAuth( USER_ROLES.ADMIN),AppointmentController.getAdminAppointmentById,
+);
+
 router.patch(
   '/:id/cancel',
   checkAuth(USER_ROLES.CLIENT, USER_ROLES.PROVIDER, USER_ROLES.ADMIN),

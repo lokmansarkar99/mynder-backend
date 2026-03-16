@@ -15,10 +15,13 @@ import { IAppointmentDocument } from './appointment.interface';
 import { TCancelAppointmentPayload, TSessionSummaryPayload } from './appointment.validation';
 import { TCreateCheckoutSessionPayload, TCreateBookingRecordsParams } from '../../../types/appointment.types';
 
+
 import config from '../../../config';
 
 import sendNotification from '../../../shared/sendNotification';
 import { NOTIFICATION_TYPE , REFERENCE_MODEL} from '../../../enums/notification';
+import { ProviderProfile } from './../provider-profile/providerProfile.model';
+import { ClientProfile } from '../client-profile/clientProfile.model';
 
 // ─── Private Helper — called by stripe webhook after payment ──────────────────
 // Exported so stripe.service.ts can call it from webhook handler
@@ -315,10 +318,10 @@ const cancelAppointment = async (
 // ─── 5. Get All Appointments (Admin)
 const getAllAppointments = async (query: Record<string, unknown>) => {
   const appointmentQuery = new QueryBuilder(
-    Appointment.find()
-      .populate('client',   'email name')
-      .populate('provider', 'email name')
-      .populate('invoice'),
+    Appointment.find({}, {appointmentId:1, scheduledAt:1, status:1})
+      .populate('client',   ' name')
+      .populate('provider', ' name'),
+      // .populate('invoice'),
     query,
   )
     .search(['appointmentId'])
@@ -417,6 +420,133 @@ const addSessionSummary = async (
   );
 };
 
+
+
+// Add this new function to your existing appointment.service.ts
+// Keep all existing functions, just add this one
+
+const getAdminAppointmentById = async (appointmentId: string) => {
+
+  // ── 1. Get appointment with base populates ────────────────────
+  const appointment = await Appointment.findById(new Types.ObjectId(appointmentId))
+    .populate('client',   '_id email')
+    .populate('provider', '_id email')
+    .populate('slot',     'startTime endTime date meetingLink meetingId meetingPassword')
+    .populate('invoice',  'invoiceNumber sessionFee processingFee totalAmount paymentMethod paymentStatus paidAt cardLast4')
+    .lean();
+
+  if (!appointment) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Appointment not found');
+  }
+
+  const clientUserId   = (appointment.client   as any)?._id;
+  const providerUserId = (appointment.provider as any)?._id;
+
+  // ── 2. Fetch ClientProfile + ProviderProfile in parallel ─────
+  const [clientProfile, providerProfile] = await Promise.all([
+
+    ClientProfile.findOne({ user: clientUserId })
+      .select('fullName phone profilePhoto billingAddress')
+      .lean(),
+
+    ProviderProfile.findOne({ user: providerUserId })
+      .select('fullName phone providerType licenseNumber licenseState additionalCertifications professionalPhoto')
+      .lean(),
+  ]);
+
+  // ── 3. Shape invoice / payment info ──────────────────────────
+  const invoice  = appointment.invoice as any;
+  const slot     = appointment.slot    as any;
+
+  const paymentStatus = invoice
+    ? invoice.paymentStatus === 'completed'
+      ? `Paid (${invoice.paymentMethod === 'credit_card' ? 'Credit Card' : invoice.paymentMethod}${invoice.cardLast4 ? ` ending in ${invoice.cardLast4}` : ''})`
+      : invoice.paymentStatus
+    : 'Pending';
+
+  // ── 4. Shape timezone label ───────────────────────────────────
+  const timezoneLabels: Record<string, string> = {
+    'America/New_York':    'Eastern Standard Time (EST)',
+    'America/Chicago':     'Central Standard Time (CST)',
+    'America/Denver':      'Mountain Standard Time (MST)',
+    'America/Los_Angeles': 'Pacific Standard Time (PST)',
+    'Europe/London':       'Greenwich Mean Time (GMT)',
+    'Asia/Dhaka':          'Bangladesh Standard Time (BST)',
+  };
+  const timezoneLabel = timezoneLabels[appointment.timezone] ?? appointment.timezone;
+
+  // ── 5. Shape provider credentials label ──────────────────────
+  const providerTypeLabels: Record<string, string> = {
+    clinical_psychologist: 'Clinical Psychologist',
+    licensed_counselor:    'Licensed Counselor',
+    social_worker:         'Social Worker',
+    psychiatrist:          'Psychiatrist',
+    other:                 'Therapist',
+  };
+  const credentials = [
+    providerProfile?.licenseNumber ? `${providerProfile.licenseNumber}` : null,
+    providerProfile?.providerType  ? providerTypeLabels[providerProfile.providerType] : null,
+    providerProfile?.additionalCertifications ?? null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  // ── 6. Final shaped response ──────────────────────────────────
+  return {
+    // ── Header breadcrumb ──────────────────────────────────
+    appointmentId:  appointment.appointmentId,
+    status:         appointment.status,
+
+    // ── Client Information (top-left card) ────────────────
+    clientInfo: {
+      fullName:  clientProfile?.fullName ?? (appointment.client as any)?.email ?? 'Client',
+      clientId:  `C-${String(clientProfile?._id ?? clientUserId).slice(-5).toUpperCase()}`,
+      email:     (appointment.client as any)?.email ?? '',
+      phone:     clientProfile?.phone ?? '',
+      photo:     clientProfile?.profilePhoto ?? '',
+    },
+
+    // ── Provider Information (top-right card) ─────────────
+    providerInfo: {
+      fullName:    providerProfile?.fullName ?? (appointment.provider as any)?.email ?? 'Provider',
+      credentials,                             // "Psy.D, Clinical Psychologist"
+      phone:       providerProfile?.phone ?? '',
+      photo:       providerProfile?.professionalPhoto ?? '',
+      providerType: providerProfile?.providerType ?? '',
+    },
+
+    // ── Session Schedule (bottom-left card) ───────────────
+    sessionSchedule: {
+      scheduledAt:     appointment.scheduledAt,    // Date & Time
+      endAt:           appointment.endAt,
+      timezone:        appointment.timezone,
+      timezoneLabel,                               // "Eastern Standard Time (EST)"
+      durationMinutes: appointment.durationMinutes,
+      format:          appointment.format,         // "online" | "in_person"
+      meetingLink:     slot?.meetingLink    ?? appointment.meetingLink    ?? '',
+      meetingId:       slot?.meetingId      ?? appointment.meetingId      ?? '',
+      meetingPassword: slot?.meetingPassword ?? appointment.meetingPassword ?? '',
+      sessionName:     appointment.sessionName,
+    },
+
+    // ── Financial Information (bottom-right card) ─────────
+    financialInfo: {
+      sessionFee:     appointment.sessionFee,       // 150
+      processingFee:  invoice?.processingFee  ?? 0,
+      totalAmount:    invoice?.totalAmount    ?? appointment.sessionFee,
+      paymentStatus,                                // "Paid (Credit Card ending in 4242)"
+      paymentMethod:  invoice?.paymentMethod  ?? '',
+      cardLast4:      invoice?.cardLast4      ?? '',
+      invoiceNumber:  invoice?.invoiceNumber  ?? '',
+      paidAt:         invoice?.paidAt         ?? null,
+      sessionType:    `${appointment.sessionName} (${appointment.durationMinutes} min)`,
+    },
+  };
+};
+
+
+
+
 export const AppointmentService = {
   createCheckoutSession,     
   getMyAppointments,
@@ -428,4 +558,5 @@ export const AppointmentService = {
   completeSession,
   markNoShow,
   addSessionSummary,
+  getAdminAppointmentById
 };

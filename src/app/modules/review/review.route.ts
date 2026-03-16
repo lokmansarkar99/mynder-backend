@@ -38,6 +38,13 @@ router
     ReviewController.getAllReviews,
   );
 
+
+router
+  .route('/public')
+  .get(
+    ReviewController.getAllReviews,
+  );
+
 router
   .route('/:id/publish')
   .patch(

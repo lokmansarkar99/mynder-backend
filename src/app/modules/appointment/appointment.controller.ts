@@ -162,6 +162,22 @@ const addSessionSummary = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+
+
+// Add to existing appointment.controller.ts
+
+const getAdminAppointmentById = catchAsync(async (req, res) => {
+  const result = await AppointmentService.getAdminAppointmentById(req.params.id as string);
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success:    true,
+    message:    'Appointment details fetched successfully',
+    data:       result,
+  });
+});
+
+
+
 export const AppointmentController = {
   createCheckoutSession,      
   getMyAppointments,
@@ -173,4 +189,5 @@ export const AppointmentController = {
   completeSession,
   markNoShow,
   addSessionSummary,
+  getAdminAppointmentById
 };
