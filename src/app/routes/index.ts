@@ -17,6 +17,7 @@ import { FAQRoutes } from "../modules/faq/faq.route";
 import { ReviewRoutes } from "../modules/review/review.route";
 import { BlogRoutes } from "../modules/blog/blog.route";
 import { ClinicalNoteRoutes } from "../modules/clinical-note/clinicalNote.route";
+import { InvoiceRoutes } from "../modules/invoice/invoice.route";
 
 const router = express.Router()
 
@@ -53,4 +54,6 @@ router.use("/review", ReviewRoutes)
 router.use("/blog", BlogRoutes)
 
 router.use("/clinical-note", ClinicalNoteRoutes)
+
+router.use("/invoice", InvoiceRoutes)
 export default router;

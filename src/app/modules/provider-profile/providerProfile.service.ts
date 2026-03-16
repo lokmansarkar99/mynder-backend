@@ -24,6 +24,8 @@ import {
 import sendNotification from "../../../shared/sendNotification";
 
 import { Slot } from "../slot/slot.model";
+import { SessionType } from "../session-type/sessionType.model";
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const normalizeFiles = (
@@ -357,99 +359,208 @@ const updateMyProfile = async (
 
 // ─── Public Endpoints ─────────────────────────────────────────────────────────
 
+
+
 const getPublicProviders = async (query: Record<string, unknown>) => {
-  // ── Tomorrow's date window for availability check ─────────────
+
+  // ── Tomorrow date window ──────────────────────────────────────
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStart = new Date(tomorrow.setHours(0, 0, 0, 0));
-  const tomorrowEnd = new Date(tomorrow.setHours(23, 59, 59, 999));
+  const tomorrowStart = new Date(new Date(tomorrow).setHours(0, 0, 0, 0));
+  const tomorrowEnd   = new Date(new Date(tomorrow).setHours(23, 59, 59, 999));
 
-  // ── Only fields the provider card needs ───────────────────────
+  // ── Only card fields from ProviderProfile ─────────────────────
   const CARD_FIELDS =
-    "_id user fullName providerType professionalPhoto " +
-    "therapeuticApproaches clientPopulations" +
-    "averageRating totalReviews isFeatured isTopProvider bio" + "sessionFees";
+    '_id user fullName providerType professionalPhoto ' +
+    'therapeuticApproaches clientPopulations ' +
+    'averageRating totalReviews isFeatured isTopProvider bio';
 
   const baseQuery = ProviderProfile.find({
     applicationStatus: APPLICATION_STATUS.APPROVED,
   })
     .select(CARD_FIELDS)
-    .populate("user", "_id"); // only need _id for availability check
+    .populate('user', '_id');
 
   const providerQuery = new QueryBuilder(baseQuery, query)
-    .search(["fullName", "city", "providerType"])
+    .search(['fullName', 'city', 'providerType'])
     .filter()
     .sort()
     .paginate()
     .fields();
 
-  // ── Run query + count in parallel ────────────────────────────
+  // ── Run query + count in parallel ─────────────────────────────
   const [providers, meta] = await Promise.all([
     providerQuery.modelQuery,
     providerQuery.countTotal(),
   ]);
 
-  // ── Collect provider User IDs → check tomorrow's slots ───────
+  // ── Collect all provider User._ids ────────────────────────────
   const providerUserIds = providers.map((p: any) => p.user?._id ?? p.user);
 
-  // Single query — which providers have a free slot tomorrow?
-  const availableTomorrowIds = await Slot.find({
-    provider: { $in: providerUserIds },
-    date: { $gte: tomorrowStart, $lte: tomorrowEnd },
-    isBooked: false,
-    isExpired: false,
-  }).distinct("provider"); 
+  // ── 3 parallel lookups ────────────────────────────────────────
+  const [availableTomorrowIds, sessionTypes] = await Promise.all([
 
+    // Which providers have a free slot tomorrow?
+    Slot.find({
+      provider:  { $in: providerUserIds },
+      date:      { $gte: tomorrowStart, $lte: tomorrowEnd },
+      isBooked:  false,
+      isExpired: false,
+    }).distinct('provider'),
+
+    //  Session fees now come from SessionType — NOT providerProfile.sessionFees
+    SessionType.find({
+      provider: { $in: providerUserIds },
+      isActive: true,
+    })
+      .select('provider name duration price')
+      .lean(),
+  ]);
+
+  // ── Build lookup maps ─────────────────────────────────────────
   const availableSet = new Set(
     availableTomorrowIds.map((id: any) => id.toString()),
   );
 
-  // ── Shape each provider into the card payload ─────────────────
+  // providerUserId → [{ name, duration, price }]
+  const sessionTypeMap: Record<
+    string,
+    { name: string; duration: number; price: number }[]
+  > = {};
+
+  for (const st of sessionTypes as any[]) {
+    const key = st.provider.toString();
+    if (!sessionTypeMap[key]) sessionTypeMap[key] = [];
+    sessionTypeMap[key].push({
+      name:     st.name,
+      duration: st.duration,
+      price:    st.price,
+    });
+  }
+
+  // ── Shape provider cards ──────────────────────────────────────
   const data = providers.map((p: any) => {
-    const doc = p.toObject ? p.toObject() : p;
+    const doc    = p.toObject ? p.toObject() : p;
     const userId = (doc.user?._id ?? doc.user)?.toString();
 
-  const fees: { duration: number; fee: number }[] = doc.sessionFees ?? [];
-
-const lowestFee = fees.length > 0
-  ? fees.reduce((min, f) => (f.fee < min ? f.fee : min), fees[0].fee)
-  : null;
+    const sessions   = sessionTypeMap[userId] ?? [];
+    const lowestFee  = sessions.length
+      ? sessions.reduce((min, s) => (s.price < min ? s.price : min), sessions[0].price)
+      : null;
 
     return {
-      _id: doc._id, // for "View Profile" / "Book Now"
-      fullName: doc.fullName, // Dr. Sarah Jenkins
-      providerType: doc.providerType, // clinical_psychologist
-      professionalPhoto: doc.professionalPhoto,
-      therapeuticApproaches: doc.therapeuticApproaches, // ["CBT", "DBT"]
-      clientPopulations: doc.clientPopulations, // ["Anxiety", "Depression"]
-      sessionFee: fees, // 150  → "$150 / Session"
-      averageRating: doc.averageRating,
-      totalReviews: doc.totalReviews,
-      isFeatured: doc.isFeatured,
-      isTopProvider: doc.isTopProvider, // "Top" badge
-      bio: doc.bio ?? null,
-      isAvailableTomorrow: availableSet.has(userId ?? ""), // "Available tomorrow"
+      _id:                   doc._id,
+      fullName:              doc.fullName,
+      providerType:          doc.providerType,
+      professionalPhoto:     doc.professionalPhoto,
+      therapeuticApproaches: doc.therapeuticApproaches,
+      clientPopulations:     doc.clientPopulations,
+      averageRating:         doc.averageRating,
+      totalReviews:          doc.totalReviews,
+      isFeatured:            doc.isFeatured,
+      isTopProvider:         doc.isTopProvider,
+      bio:                   doc.bio ?? null,
+      isAvailableTomorrow:   availableSet.has(userId ?? ''),
+
+      //  From SessionType
+      sessionTypes:  sessions,    // [{ name: "Standard", duration: 60, price: 150 }]
+      sessionFee:    lowestFee,   // 150 → "$150 / Session" on card
     };
   });
 
   return { data, meta };
 };
 
+
+
 const getPublicProviderById = async (providerId: string) => {
-  const profile = await ProviderProfile.findOne({
-    user: new Types.ObjectId(providerId),
-    applicationStatus: APPLICATION_STATUS.APPROVED,
-  })
-    .populate("user", "email isActive name")
-    .select(
-      "-cvDocument -licenseDocument -applicationSubmittedAt -reviewedBy -rejectionReason",
-    );
+
+  // ── 1. Profile + SessionTypes + upcoming slots in parallel ────
+  const now           = new Date();
+  const todayStart    = new Date(new Date().setHours(0, 0, 0, 0));
+  const sevenDaysEnd  = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+  const [profile, sessionTypes, upcomingSlots] = await Promise.all([
+
+    ProviderProfile.findOne({
+      user:              new Types.ObjectId(providerId),
+      applicationStatus: APPLICATION_STATUS.APPROVED,
+    })
+      .populate('user', 'email isActive name')
+      .select(
+        '-cvDocument -licenseDocument -applicationSubmittedAt ' +
+        '-reviewedBy -rejectionReason -sessionFees', // exclude stale empty array
+      )
+      .lean(),
+
+    // ✅ Real session pricing from SessionType
+    SessionType.find({
+      provider: new Types.ObjectId(providerId),
+      isActive: true,
+    })
+      .select('name duration price isActive')
+      .lean(),
+
+    // Next 7 days available slots — for "Book Now" date picker
+    Slot.find({
+      provider:  new Types.ObjectId(providerId),
+      date:      { $gte: todayStart, $lte: sevenDaysEnd },
+      isBooked:  false,
+      isExpired: false,
+    })
+      .select('date startTime endTime duration sessionType sessionName price')
+      .populate('sessionType', 'name duration price')
+      .sort({ date: 1, startTime: 1 })
+      .lean(),
+  ]);
 
   if (!profile) {
-    throw new ApiError(StatusCodes.NOT_FOUND, "Provider not found");
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Provider not found');
   }
-  return profile;
+
+  // ── 2. Compute lowestFee for the card display ─────────────────
+  const lowestFee: number | null = sessionTypes.length
+    ? (sessionTypes as any[]).reduce(
+        (min: number, s: any) => (s.price < min ? s.price : min),
+        (sessionTypes as any[])[0].price,
+      )
+    : null;
+
+  // ── 3. Group available slots by date for the frontend ─────────
+  const slotsByDate = (upcomingSlots as any[]).reduce(
+    (acc: Record<string, any[]>, slot: any) => {
+      const dateKey = new Date(slot.date).toISOString().split('T')[0]; // "2026-03-17"
+      if (!acc[dateKey]) acc[dateKey] = [];
+      acc[dateKey].push({
+        slotId:      slot._id,
+        startTime:   slot.startTime,
+        endTime:     slot.endTime,
+        duration:    slot.duration,
+        price:       slot.price,
+        sessionName: slot.sessionName,
+        sessionType: slot.sessionType,
+      });
+      return acc;
+    },
+    {},
+  );
+
+  // ── 4. Return full enriched profile ──────────────────────────
+  return {
+    ...profile,
+
+    // ✅ Real session pricing — replaces empty sessionFees[]
+    sessionTypes: sessionTypes,   // [{ name, duration, price, isActive }]
+    sessionFee:   lowestFee,      // lowest price → "$100 / Session" on card
+
+    // Available booking slots next 7 days
+    availability: {
+      slotsByDate,                            // { "2026-03-17": [{ slotId, startTime, ... }] }
+      hasAvailability: upcomingSlots.length > 0,
+    },
+  };
 };
+
 
 // ─── Admin Endpoints ──────────────────────────────────────────────────────────
 
