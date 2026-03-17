@@ -66,6 +66,7 @@ export type IClientProfile = {
   totalSessions:     number;
   totalSpent:        number;
   memberSince:       Date;
+  customFields: [ { fieldKey: string, fieldLabel:string, value: any } ]
 };
 
 export type IClientProfileDocument = IClientProfile & Document;

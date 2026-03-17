@@ -182,8 +182,36 @@ const buildStepUpdateData = (
   }
 };
 
-// ─── Service Functions ────────────────────────────────────────────────────────
 
+// ─── Merge incoming customFields into existing array ─────────────────────────
+// Incoming: [{ fieldKey, fieldLabel, value }]
+// If fieldKey already exists → update value
+// If new fieldKey → push new entry
+const mergeCustomFields = (
+  existing: { fieldKey: string; fieldLabel: string; value: any }[],
+  incoming: { fieldKey: string; fieldLabel?: string; value: any }[],
+): { fieldKey: string; fieldLabel: string; value: any }[] => {
+  const merged = [...existing];
+
+  incoming.forEach((item) => {
+    const idx = merged.findIndex((f) => f.fieldKey === item.fieldKey);
+    if (idx > -1) {
+      merged[idx].value      = item.value;
+      merged[idx].fieldLabel = item.fieldLabel ?? merged[idx].fieldLabel;
+    } else {
+      merged.push({
+        fieldKey:   item.fieldKey,
+        fieldLabel: item.fieldLabel ?? '',
+        value:      item.value,
+      });
+    }
+  });
+
+  return merged;
+};
+
+
+// ─── Service Functions ────────────────────────────────────────────────────────
 const saveIntakeStep = async (
   userId: string,
   step: number,
@@ -196,57 +224,55 @@ const saveIntakeStep = async (
   const userObjectId = new Types.ObjectId(userId);
   const files = normalizeFiles(rawFiles);
 
-  // Fetch existing doc only for steps with file uploads (1 & 2)
-  const existing =
-    step === 1 || step === 2
-      ? await ProviderProfile.findOne({ user: userObjectId })
-      : null;
+  // ── Extract customFields BEFORE passing payload to buildStepUpdateData ──────
+  const { customFields: incomingCustom, ...corePayload } = payload as any;
 
-  // ── Delete old files before saving new ones ───────────────────────────────
+  // ── Fetch existing — needed for file steps AND custom fields ─────────────
+  const needsExisting = step === 1 || step === 2 || (incomingCustom?.length > 0);
+  const existing = needsExisting
+    ? await ProviderProfile.findOne({ user: userObjectId }).lean()
+    : null;
+
+  // ── Delete old files before saving (unchanged) ────────────────────────────
   if (step === 1) {
-    if (getSingleFilePath(files, "profileImage") && existing?.profilePhoto)
-      unlinkFile(existing.profilePhoto);
-    if (
-      getSingleFilePath(files, "professionalPhoto") &&
-      existing?.professionalPhoto
-    )
-      unlinkFile(existing.professionalPhoto);
-    if (
-      getSingleFilePath(files, "professionalVideo") &&
-      existing?.professionalVideo
-    )
-      unlinkFile(existing.professionalVideo);
+    if (getSingleFilePath(files, 'profileImage')       && existing?.profilePhoto)      unlinkFile(existing.profilePhoto);
+    if (getSingleFilePath(files, 'professionalPhoto')  && existing?.professionalPhoto) unlinkFile(existing.professionalPhoto);
+    if (getSingleFilePath(files, 'professionalVideo')  && existing?.professionalVideo) unlinkFile(existing.professionalVideo);
   }
   if (step === 2) {
-    if (getSingleFilePath(files, "cvDocument") && existing?.cvDocument)
-      unlinkFile(existing.cvDocument);
-    if (
-      getSingleFilePath(files, "licenseDocument") &&
-      existing?.licenseDocument
-    )
-      unlinkFile(existing.licenseDocument);
+    if (getSingleFilePath(files, 'cvDocument')      && existing?.cvDocument)      unlinkFile(existing.cvDocument);
+    if (getSingleFilePath(files, 'licenseDocument') && existing?.licenseDocument) unlinkFile(existing.licenseDocument);
   }
 
-  const rawData = buildStepUpdateData(step, payload, files);
+  // ── Build core step data (unchanged logic) ────────────────────────────────
+  const rawData   = buildStepUpdateData(step, corePayload as TIntakeStepInput, files);
   const cleanData = Object.fromEntries(
     Object.entries(rawData).filter(([, v]) => v !== undefined),
   );
 
+  // ── Merge customFields if any sent ────────────────────────────────────────
+  if (Array.isArray(incomingCustom) && incomingCustom.length > 0) {
+    const existingCustom = (existing as any)?.customFields ?? [];
+    cleanData.customFields = mergeCustomFields(existingCustom, incomingCustom);
+  }
+
   return await ProviderProfile.findOneAndUpdate(
     { user: userObjectId },
     {
-      $set: cleanData,
-      $max: { intakeStep: step },
+      $set:         cleanData,
+      $max:         { intakeStep: step },
       $setOnInsert: { user: userObjectId },
     },
     {
-      returnDocument: "after",
-      upsert: true,
-      runValidators: true,
+      returnDocument:      'after',
+      upsert:              true,
+      runValidators:       true,
       setDefaultsOnInsert: true,
     },
   );
 };
+
+
 
 const getMyProfile = async (userId: string) => {
   const profile = await ProviderProfile.findOne({

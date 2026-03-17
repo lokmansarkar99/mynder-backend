@@ -86,6 +86,17 @@ const clientProfileSchema = new Schema<IClientProfileDocument>(
     totalSessions: { type: Number, default: 0 },
     totalSpent:    { type: Number, default: 0 },
     memberSince:   { type: Date, default: Date.now },
+    customFields: {
+  type: [
+    {
+      fieldKey:  { type: String },  // matches IntakeFormConfig.fieldKey
+      fieldLabel:{ type: String },  // denormalized label
+      value:     { type: Schema.Types.Mixed },
+      _id: false,
+    }
+  ],
+  default: [],
+},
   },
   { timestamps: true }
 );

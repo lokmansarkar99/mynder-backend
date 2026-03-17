@@ -80,6 +80,17 @@ const providerProfileSchema = new Schema<IProviderProfileDocument>(
       ref: 'User',
       default: null,
     },
+    customFields: {
+  type: [
+    {
+      fieldKey:  { type: String },
+      fieldLabel:{ type: String },
+      value:     { type: Schema.Types.Mixed },
+      _id: false,
+    }
+  ],
+  default: [],
+},
 
     // ── Ratings ──────────────────────────────────
     averageRating: { type: Number, default: 0, min: 0, max: 5 },
@@ -88,6 +99,8 @@ const providerProfileSchema = new Schema<IProviderProfileDocument>(
     isTopProvider: { type: Boolean, default: false },
     intakeStep: { type:Number, default: 1, min: 1, max: 3}
   },
+
+  
   { timestamps: true }
 );
 

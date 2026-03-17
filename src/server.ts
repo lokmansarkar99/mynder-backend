@@ -4,7 +4,7 @@ import app      from './app';
 import config   from './config';
 import { logger, errorLogger } from './shared/logger';
 import colors   from 'colors';
-import seedAdmin from './DB';
+import seedAdmin, { seedIntakeFormConfig } from './DB';
 import { initSocket } from './socket/socket';  
 import { registerAppointmentReminderCron } from './cron/appointment.reminder.cron';
 // ─── Uncaught Exception Handler — Synchronous Errors ─────────────────────────
@@ -26,6 +26,7 @@ async function main() {
     logger.info(colors.green('Database connected successfully!'));
 
     seedAdmin();
+    seedIntakeFormConfig()
 
     const port = Number(config.port);
 
