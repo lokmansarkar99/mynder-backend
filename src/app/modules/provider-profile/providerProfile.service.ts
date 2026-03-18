@@ -74,6 +74,7 @@ const buildStepUpdateData = (
       const data = payload as TStep1Input;
       const update: Record<string, unknown> = {
         fullName: data.fullName,
+        email: data.email,
         phone: data.phone,
         dateOfBirth: data.dateOfBirth,
         genderIdentity: data.genderIdentity,
@@ -233,6 +234,12 @@ const saveIntakeStep = async (
     ? await ProviderProfile.findOne({ user: userObjectId }).lean()
     : null;
 
+
+    // auto fill email form User if not provided
+    if(step === 1 && !(corePayload as any).email) {
+      const user = await User.findById(userObjectId).select('email').lean()
+      if(user?.email) (corePayload as any).email = user.email
+    }
   // ── Delete old files before saving (unchanged) ────────────────────────────
   if (step === 1) {
     if (getSingleFilePath(files, 'profileImage')       && existing?.profilePhoto)      unlinkFile(existing.profilePhoto);

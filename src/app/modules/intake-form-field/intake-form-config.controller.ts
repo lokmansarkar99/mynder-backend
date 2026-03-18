@@ -11,6 +11,8 @@ import { IntakeFormConfigService } from './intake-form-config.service';
 const getPublicFormConfig = catchAsync(async (req: Request, res: Response) => {
   const formType = req.query.formType as 'CLIENT' | 'PROVIDER';
 
+  const step = Number(req.query.step)
+
   if (!formType || !['CLIENT', 'PROVIDER'].includes(formType)) {
     return sendResponse(res, {
       statusCode: StatusCodes.BAD_REQUEST,
@@ -20,7 +22,7 @@ const getPublicFormConfig = catchAsync(async (req: Request, res: Response) => {
     });
   }
 
-  const result = await IntakeFormConfigService.getPublicFormConfig(formType);
+  const result = await IntakeFormConfigService.getPublicFormConfig(formType, step);
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success:    true,

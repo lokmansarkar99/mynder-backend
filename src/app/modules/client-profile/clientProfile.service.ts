@@ -51,6 +51,7 @@ const buildStepUpdateData = (
       const update: Record<string, unknown> = {
         fullName:          data.fullName,
         phone:             data.phone,
+        email: data.email,
         dateOfBirth:       new Date(data.dateOfBirth),
         genderIdentity:    data.genderIdentity,
         preferredLanguage: data.preferredLanguage ?? 'English',

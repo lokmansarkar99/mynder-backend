@@ -78,7 +78,7 @@ const clientProfileSchema = new Schema<IClientProfileDocument>(
     reasonForTherapy: { type: String },
     primaryGoal:      { type: String },
 
-    // ── Intake Progress ──────────────────────────
+    // ── Intake Progress ────────────────────────── 
     intakeCompleted: { type: Boolean, default: false },
     intakeStep:      { type: Number, default: 1, min: 1, max: 5 },
 

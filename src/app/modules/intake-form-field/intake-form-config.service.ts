@@ -5,11 +5,12 @@ import { IntakeFormConfig } from './intake-form-config.model';
 
 // ── PUBLIC: Get active fields for a form (grouped by step) ────────
 // Used by CLIENT and PROVIDER to render their intake form
-const getPublicFormConfig = async (formType: 'CLIENT' | 'PROVIDER') => {
+const getPublicFormConfig = async (formType: 'CLIENT' | 'PROVIDER', step = 1) => {
   const fields = await IntakeFormConfig
-    .find({ formType, isActive: true })
+    .find({ formType, isActive: true, step })
+    .select("-createdAt -updatedAt -__v")
     .sort({ step: 1, order: 1 })
-    .lean();
+    .lean()
 
   // Group by step → { step1: [...], step2: [...] }
   return fields.reduce((acc: any, field) => {
