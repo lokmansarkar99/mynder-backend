@@ -3,8 +3,7 @@ import { User } from "../app/modules/user/user.model";
 import config from "../config";
 import { USER_ROLES } from "../enums/user";
 import { logger } from "../shared/logger";
-import { IntakeFormConfig } from "../../src/app/modules/intake-form-field/intake-form-config.model";
-
+import { IntakeFormConfig } from "../app/modules/intake-form-field/intake-form-config.model"
 const superUser = {
   name: "Admin",
   role: USER_ROLES.ADMIN,
