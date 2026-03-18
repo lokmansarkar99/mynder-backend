@@ -12,6 +12,7 @@ export type IProviderPayout = {
   status:             PAYOUT_STATUS;
   payoutDate:         Date | null;
   failureReason:      string;
+  customFields: [ { fieldKey: string, fieldLabel:string, value: string } ]
 };
 
 export type IProviderPayoutDocument = IProviderPayout & Document;

@@ -34,6 +34,7 @@ const PROVIDER_TYPES = [
 
 export const step1Schema = z.object({
   fullName:      z.string().min(2, 'Full name must be at least 2 characters'),
+  email: z.string().optional(),
   phone:         z.string().min(7, 'Enter a valid phone number'),
   dateOfBirth:   z.string().refine(v => !isNaN(Date.parse(v)), { message: 'Invalid date format' }),
   genderIdentity: z.enum(Object.values(GENDER_IDENTITY) as [string, ...string[]]),

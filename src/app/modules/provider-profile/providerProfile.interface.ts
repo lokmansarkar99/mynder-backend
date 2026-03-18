@@ -65,6 +65,7 @@ export type IProviderProfile = {
   totalReviews:   number;
   isFeatured:     boolean;
   isTopProvider:  boolean;
+   customFields: [ { fieldKey: string, fieldLabel:string, value: string } ]
 };
 
 export type IProviderProfileDocument = IProviderProfile & Document;

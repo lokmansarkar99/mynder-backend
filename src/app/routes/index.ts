@@ -18,6 +18,8 @@ import { ReviewRoutes } from "../modules/review/review.route";
 import { BlogRoutes } from "../modules/blog/blog.route";
 import { ClinicalNoteRoutes } from "../modules/clinical-note/clinicalNote.route";
 import { InvoiceRoutes } from "../modules/invoice/invoice.route";
+import { FormLibraryRoutes } from "../modules/form-library/form-library.route";
+import { IntakeFormConfigRoutes } from "../modules/intake-form-field/intake-form-config.route";
 
 const router = express.Router()
 
@@ -57,3 +59,8 @@ router.use("/clinical-note", ClinicalNoteRoutes)
 
 router.use("/invoice", InvoiceRoutes)
 export default router;
+
+
+router.use("/form-library", FormLibraryRoutes)
+
+router.use("/intake-form-config", IntakeFormConfigRoutes)

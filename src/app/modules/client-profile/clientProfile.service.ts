@@ -51,6 +51,7 @@ const buildStepUpdateData = (
       const update: Record<string, unknown> = {
         fullName:          data.fullName,
         phone:             data.phone,
+        email: data.email,
         dateOfBirth:       new Date(data.dateOfBirth),
         genderIdentity:    data.genderIdentity,
         preferredLanguage: data.preferredLanguage ?? 'English',
@@ -102,7 +103,38 @@ const buildStepUpdateData = (
   }
 };
 
+
+
 // ─── Service Functions ────────────────────────────────────────────────────────
+
+
+// ─── Merge incoming customFields into existing array ─────────────────────────
+// Incoming: [{ fieldKey, fieldLabel, value }]
+// If fieldKey already exists → update value
+// If new fieldKey → push new entry
+const mergeCustomFields = (
+  existing: { fieldKey: string; fieldLabel: string; value: any }[],
+  incoming: { fieldKey: string; fieldLabel?: string; value: any }[],
+): { fieldKey: string; fieldLabel: string; value: any }[] => {
+  const merged = [...existing];
+
+  incoming.forEach((item) => {
+    const idx = merged.findIndex((f) => f.fieldKey === item.fieldKey);
+    if (idx > -1) {
+      merged[idx].value      = item.value;
+      merged[idx].fieldLabel = item.fieldLabel ?? merged[idx].fieldLabel;
+    } else {
+      merged.push({
+        fieldKey:   item.fieldKey,
+        fieldLabel: item.fieldLabel ?? '',
+        value:      item.value,
+      });
+    }
+  });
+
+  return merged;
+};
+
 
 const saveIntakeStep = async (
   userId:   string,
@@ -113,12 +145,16 @@ const saveIntakeStep = async (
   const userObjectId = new Types.ObjectId(userId);
   const files        = normalizeFiles(rawFiles);
 
-  // profileImage Fetch existing doc only for steps that have file uploads (1 & 3)
-  const existing = (step === 1 || step === 3)
-    ? await ClientProfile.findOne({ user: userObjectId })
+  // ── Extract customFields BEFORE passing payload to buildStepUpdateData ──────
+  const { customFields: incomingCustom, ...corePayload } = payload as any;
+
+  // ── Fetch existing doc — needed for file steps AND custom fields ──────────
+  const needsExisting = step === 1 || step === 3 || (incomingCustom?.length > 0);
+  const existing = needsExisting
+    ? await ClientProfile.findOne({ user: userObjectId }).lean()
     : null;
 
-  // profileImage Delete old files BEFORE saving new ones
+  // ── Delete old files BEFORE saving new ones (unchanged) ──────────────────
   if (step === 1 && getSingleFilePath(files, 'profileImage')) {
     if (existing?.profilePhoto) unlinkFile(existing.profilePhoto);
   }
@@ -131,17 +167,24 @@ const saveIntakeStep = async (
     }
   }
 
-  const rawData   = buildStepUpdateData(step, payload, files);
+  // ── Build core step data (unchanged logic) ────────────────────────────────
+  const rawData   = buildStepUpdateData(step, corePayload as TIntakeStepInput, files);
   const cleanData = Object.fromEntries(
     Object.entries(rawData).filter(([, v]) => v !== undefined),
   );
+
+  // ── Merge customFields if any sent ────────────────────────────────────────
+  if (Array.isArray(incomingCustom) && incomingCustom.length > 0) {
+    const existingCustom = (existing as any)?.customFields ?? [];
+    cleanData.customFields = mergeCustomFields(existingCustom, incomingCustom);
+  }
 
   return await ClientProfile.findOneAndUpdate(
     { user: userObjectId },
     {
       $set:         cleanData,
       $max:         { intakeStep: step },
-      $setOnInsert: { user: userObjectId }, // profileImage upsert-এ user field নিশ্চিত করে
+      $setOnInsert: { user: userObjectId },
     },
     {
       returnDocument:      'after',
@@ -151,6 +194,7 @@ const saveIntakeStep = async (
     },
   );
 };
+
 
 const getMyProfile = async (userId: string) => {
   const profile = await ClientProfile
