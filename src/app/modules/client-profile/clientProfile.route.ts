@@ -22,7 +22,6 @@ const validateStep = (req: Request, res: Response, next: NextFunction) => {
 router
   .route('/intake/step/:step')
   .post(
-    checkAuth(USER_ROLES.CLIENT),
     fileUploadHandler(),
     validateStep,
     ClientProfileController.saveIntakeStep,
