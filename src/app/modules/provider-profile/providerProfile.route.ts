@@ -21,7 +21,7 @@ const validateStep = (req: Request, res: Response, next: NextFunction) => {
 // is applied uniformly — handles gracefully when no file is sent.
 router
   .route('/intake/step/:step')
-  .post(
+  .post(checkAuth(USER_ROLES.PROVIDER), 
     fileUploadHandler(),
     validateStep,
     ProviderProfileController.saveIntakeStep,

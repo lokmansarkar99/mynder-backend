@@ -21,7 +21,7 @@ const validateStep = (req: Request, res: Response, next: NextFunction) => {
 // Steps 1 & 3 have file uploads — fileUploadHandler handles all steps uniformly
 router
   .route('/intake/step/:step')
-  .post(
+  .post(checkAuth(USER_ROLES.CLIENT),
     fileUploadHandler(),
     validateStep,
     ClientProfileController.saveIntakeStep,
