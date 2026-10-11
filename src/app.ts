@@ -12,6 +12,10 @@ import passport     from './config/passport';
 
 const app: Application = express();
 
+// ─── Trust Proxy ─────────────────────────────────────────────────────────────
+// Required behind Nginx reverse proxy so rate-limiter and req.ip see real client IP
+app.set("trust proxy", 1);
+
 // ─── Logger ───────────────────────────────────────────────────────────────────
 app.use(Morgan.successHandler);
 app.use(Morgan.errorHandler);
