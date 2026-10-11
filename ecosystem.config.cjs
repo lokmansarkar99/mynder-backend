@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: "mynder-api",
-      cwd: "/home/lokman/projects/mynder/backend",
+      cwd: "/home/lokman/projects/mynder-backend",
       script: "dist/server.js",
       env: {
         NODE_ENV: "production",
