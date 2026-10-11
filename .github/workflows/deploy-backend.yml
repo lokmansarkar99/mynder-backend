@@ -1,0 +1,81 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch: {}
+
+concurrency:
+  group: mynder-backend-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify output
+        run: test -f dist/server.js
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
+          command_timeout: 12m
+          script: |
+            set -eu
+            export NVM_DIR="$HOME/.nvm"
+            if [ -s "$NVM_DIR/nvm.sh" ]; then
+              . "$NVM_DIR/nvm.sh"
+            fi
+            cd /home/lokman/projects/mynder-backend
+            echo "Previous commit: $(git rev-parse --short HEAD)"
+            git fetch origin main
+            git reset --hard origin/main
+            echo "Deploying commit: $(git rev-parse --short HEAD)"
+            echo "Installing dependencies..."
+            npm ci
+            echo "Building..."
+            NODE_OPTIONS="--max-old-space-size=1024" npm run build
+            test -f dist/server.js
+            echo "Reloading PM2..."
+            pm2 startOrReload ecosystem.config.cjs --update-env
+            pm2 save
+            echo "Health check..."
+            for i in $(seq 1 15); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:5601/ || true)
+              if [ "$code" != "000" ] && [ "$code" -lt 500 ]; then
+                echo "App responded with HTTP $code"
+                pm2 status
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "Health check failed"
+            pm2 logs mynder-api --lines 40 --nostream
+            exit 1

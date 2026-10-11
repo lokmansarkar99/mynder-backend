@@ -1,10 +1,7 @@
 # Local environment files (keep the shareable sample)
-.env
-.env.*
 !.env.example
 
 # Editor settings
-.vscode/
 vscode/
 
 node_modules
@@ -30,3 +27,4 @@ branch_structure.json
 .agents/
 AGENTS.md
 GEMINI.md
+config.bat
