@@ -58,9 +58,7 @@ router.use("/blog", BlogRoutes)
 router.use("/clinical-note", ClinicalNoteRoutes)
 
 router.use("/invoice", InvoiceRoutes)
-export default router;
-
-
 router.use("/form-library", FormLibraryRoutes)
-
 router.use("/intake-form-config", IntakeFormConfigRoutes)
+
+export default router;
