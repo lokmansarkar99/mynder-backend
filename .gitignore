@@ -1,4 +1,12 @@
+# Local environment files (keep the shareable sample)
 .env
+.env.*
+!.env.example
+
+# Editor settings
+.vscode/
+vscode/
+
 node_modules
 node_modules/
 dist
