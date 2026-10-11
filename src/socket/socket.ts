@@ -24,7 +24,7 @@ export const initSocket = (httpServer: http.Server): void => {
 
   io = new Server(httpServer, {
     cors: {
-      origin:      [config.client_url as string, 'http://localhost:3000', 'http://localhost:5173'],
+      origin:      config.client_urls,
       methods:     ['GET', 'POST'],
       credentials: true,
     },

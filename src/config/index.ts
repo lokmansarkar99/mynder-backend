@@ -5,11 +5,52 @@ import path from "path"
 
 dotenv.config({path: path.join(process.cwd(), ".env") })
 
+const parseClientUrls = (rawEnv?: string): string[] => {
+  if (!rawEnv) return ['http://localhost:3000'];
+
+  const rawTokens = rawEnv.split(',').map((s) => s.trim()).filter(Boolean);
+  const parsed: string[] = [];
+
+  for (let i = 0; i < rawTokens.length; i++) {
+    let token = rawTokens[i];
+
+    // If a token is just "https://" or "http://" and next token is a domain
+    if ((token === 'https://' || token === 'http://') && i + 1 < rawTokens.length) {
+      token = `${token}${rawTokens[i + 1]}`;
+      i++;
+    }
+
+    // Strip trailing slashes
+    token = token.replace(/\/+$/, '');
+
+    // Auto-complete protocol if missing
+    if (token !== '*' && !token.startsWith('http://') && !token.startsWith('https://')) {
+      if (token.startsWith('localhost') || /^127\.|^10\.|^192\.168\./.test(token)) {
+        token = `http://${token}`;
+      } else {
+        token = `https://${token}`;
+      }
+    }
+
+    const host = token.replace(/^https?:\/\//i, '');
+    if (token === '*' || host.length > 0) {
+      if (!parsed.includes(token)) {
+        parsed.push(token);
+      }
+    }
+  }
+
+  return parsed.length > 0 ? parsed : ['http://localhost:3000'];
+};
+
+const clientUrls = parseClientUrls(process.env.CLIENT_URL);
+
 export default {
     port: process.env.PORT,
     database_url: process.env.DATABASE_URL,
     node_env: process.env.NODE_ENV,
-    client_url: process.env.CLIENT_URL,
+    client_url: clientUrls[0],
+    client_urls: clientUrls,
     bcrypt_salt_rounds: process.env.BCRYPT_SALT_ROUNDS,
     jwt: {
         jwt_secret: process.env.JWT_SECRET,
